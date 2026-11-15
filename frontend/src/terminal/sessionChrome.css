@@ -1,0 +1,99 @@
+.terminal-session-output {
+  position: relative;
+  flex: 1 1 0%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  padding: 12px 48px 6px 16px;
+}
+
+.terminal-session-toolbar {
+  container: session-toolbar / inline-size;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  flex-wrap: wrap;
+  min-height: 30px;
+  gap: 4px;
+  padding: 2px 8px;
+  border-top: 1px solid var(--terminal-chrome-border);
+  background: var(--terminal-chrome-bg);
+  color: #91a2b6;
+}
+
+.terminal-session[data-active="true"] .terminal-session-toolbar { border-top-color: rgb(111 177 235 / .25); }
+.terminal-session-tool {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #a5b6cc;
+  font-size: 11px;
+  transition: color 130ms ease, background-color 130ms ease, border-color 130ms ease;
+}
+.terminal-session-tool:hover { background: rgb(139 178 220 / .09); color: #e1eeff; }
+.terminal-session-tool[aria-expanded="true"] { background: rgb(56 139 225 / .13); border-color: rgb(100 177 255 / .24); color: #b8deff; }
+.terminal-session-tool:disabled { cursor: default; opacity: .4; }
+.terminal-session-tool:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 1px; }
+.terminal-session-history { display: flex; justify-content: flex-end; flex: 1 1 auto; min-width: 0; }
+.terminal-history-actions-docked { position: static; pointer-events: auto; }
+.terminal-history-actions-docked .terminal-history-latest { min-height: 24px; padding: 1px 6px; border-radius: 5px; box-shadow: none; }
+.terminal-session-status { display: inline-flex; flex: 0 1 auto; align-items: center; gap: 5px; min-width: 0; padding: 0 4px; font-size: 10px; font-variant-numeric: tabular-nums; }
+.terminal-session-status-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.terminal-session-status-dot { width: 5px; height: 5px; flex: 0 0 auto; border-radius: 50%; background: #7c8ca1; }
+.terminal-session-status[data-status="connected"] .terminal-session-status-dot { background: #43d5ab; }
+.terminal-session-status[data-status="connecting"] .terminal-session-status-dot { background: #e6bb68; }
+.terminal-session-status[data-status="error"] .terminal-session-status-dot { background: #fb7185; }
+.terminal-session-zoom { padding: 0 4px; color: #b8deff; font: 10px ui-monospace, Consolas, monospace; }
+
+.terminal-session-search {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-top: 1px solid rgb(141 166 196 / .16);
+  background: #131e2c;
+}
+.terminal-session-search-field { display: flex; flex: 1 1 140px; align-items: center; gap: 4px; min-width: 100px; height: 30px; padding: 0 8px; border: 1px solid rgb(141 166 196 / .16); border-radius: 6px; background: #0b131e; }
+.terminal-session-search-field:focus-within { border-color: rgb(100 177 255 / .5); }
+.terminal-session-launcher {
+  container: session-launcher / inline-size;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 45%;
+  overflow: auto;
+  border-top: 1px solid rgb(100 177 255 / .24);
+  background: #111c2a;
+}
+.terminal-session-launcher-header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 12px; border-bottom: 1px solid rgb(141 166 196 / .12); background: #111c2a; }
+.terminal-session-launcher-header > svg { flex: 0 0 auto; }
+.terminal-session-launcher-input { flex: 1 1 140px; min-width: 0; height: 28px; }
+.terminal-session-launcher-close { margin-left: auto; }
+.terminal-session-launcher-list > button { scroll-margin-top: 84px; }
+
+@container session-toolbar (max-width: 440px) {
+  .terminal-session-tool span, .terminal-history-count-label { display: none; }
+}
+@container session-toolbar (max-width: 300px) {
+  .terminal-history-latest-label { display: none; }
+  .terminal-session-status-text { max-width: 66px; }
+}
+@container session-launcher (max-width: 440px) {
+  .terminal-session-launcher-input { flex-basis: calc(100% - 30px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .terminal-session-tool { transition: none; }
+}
+@media (forced-colors: active) {
+  .terminal-session-toolbar, .terminal-session-search, .terminal-session-launcher, .terminal-session-launcher-header { color: CanvasText; background: Canvas; border-color: CanvasText; }
+  .terminal-session-tool[aria-expanded="true"] { border-color: Highlight; }
+  .terminal-session-status-dot { background: CanvasText; }
+}

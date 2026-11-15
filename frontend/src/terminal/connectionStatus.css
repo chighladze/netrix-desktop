@@ -1,0 +1,147 @@
+@property --connection-light-progress {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+.connection-screen {
+  --connection-accent: #67d9ef;
+  --connection-core: #e3fbff;
+  --connection-bit: #405766;
+  position: absolute; inset: 0; z-index: 40; overflow: auto;
+  container-type: inline-size; color: #e5edf3;
+  font-family: inherit; text-align: left; transition: opacity 180ms ease;
+}
+.connection-screen.connection-error { --connection-accent: #e99e91; --connection-core: #ffe3da; --connection-bit: #655151; }
+.connection-screen.connection-warning { --connection-accent: #e3bd78; --connection-core: #fff0d2; --connection-bit: #655d46; }
+.connection-screen.connection-success { --connection-accent: #79dfbc; --connection-core: #dcfff0; }
+.connection-exiting { opacity: 0; pointer-events: none; }
+.connection-shell { min-height: 100%; width: 100%; padding: 28px clamp(22px, 3cqw, 52px) 32px; }
+.connection-header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px 28px; padding-bottom: 22px; border-bottom: 1px solid #ffffff0b; }
+.connection-host-name { min-width: 0; max-width: 100%; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; color: #c5d2de; }
+.connection-route { display: flex; flex-wrap: wrap; align-items: baseline; gap: 9px; min-width: 0; max-width: 100%; font: 11px/1.8 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.connection-protocol { color: #8195a5; font-size: 10px; letter-spacing: .08em; }
+.connection-endpoint { color: #bed2e2; overflow-wrap: anywhere; min-width: 0; }
+.connection-user { color: #81acae; }
+.connection-at { color: #647383; padding: 0 2px; }
+.connection-context { color: #8799a7; overflow-wrap: anywhere; }
+.connection-layout { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: clamp(36px, 5cqw, 80px); width: 100%; max-width: 1440px; padding-top: clamp(48px, 10vh, 110px); align-items: start; }
+.connection-main { min-width: 0; max-width: 570px; }
+.connection-title { font-size: clamp(26px, 2.6cqw, 36px); font-weight: 550; letter-spacing: -.045em; line-height: 1.25; margin: 0; text-wrap: balance; }
+.connection-pending .connection-title { color: #dcf1f6; }
+.connection-description { margin-top: 14px; max-width: 450px; font-size: 13px; line-height: 1.8; color: #93a6b7; overflow-wrap: anywhere; }
+.connection-hint { margin-top: 20px; padding-left: 13px; border-left: 2px solid var(--connection-accent); max-width: 490px; font-size: 12px; line-height: 1.8; color: #a6b3c2; }
+.connection-retry-note { margin-top: 14px; color: #81baff; font-size: 12px; }
+.connection-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 28px; }
+.connection-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; padding: 8px 14px; border-radius: 8px; border: 1px solid transparent; font-size: 12px; font-weight: 500; transition: background-color 150ms ease, border-color 150ms ease; }
+.connection-primary { background: #8ed6df; color: #0b242d; border-color: #a3e5ea; box-shadow: 0 3px 18px #71ced510; }
+.connection-primary:hover { background: #b6edf0; }
+.connection-secondary { background: #ffffff03; color: #a6bacb; border-color: #ffffff14; }
+.connection-secondary:hover { background: #ffffff09; border-color: #ffffff28; }
+.connection-button:disabled { opacity: .45; cursor: not-allowed; }
+.connection-screen :is(button, input, summary):focus-visible { outline: 2px solid #8ed6df; outline-offset: 3px; }
+.connection-activity { min-width: 0; padding: 14px 0 0; container-type: inline-size; }
+.connection-signal { position: relative; padding: 30px 0 28px; isolation: isolate; animation: connection-light-sweep 5.8s linear infinite; animation-play-state: paused; }
+.connection-signal.is-running { animation-play-state: running; }
+.connection-signal::before, .connection-signal::after { content: ''; position: absolute; width: 8px; height: 24px; top: 44px; border: 1px solid color-mix(in srgb, var(--connection-accent) 25%, transparent); }
+.connection-signal::before { left: -16px; border-right: 0; }
+.connection-signal::after { right: -16px; border-left: 0; }
+.connection-signal-field { position: absolute; z-index: -1; inset: -55px -20px -45px; pointer-events: none; }
+.connection-signal-field::after { content: ''; position: absolute; inset: 0; opacity: .28; background-image: radial-gradient(circle, #79b3c3 0.5px, transparent 0.7px); background-size: 12px 12px; mask-image: radial-gradient(ellipse, #000 0%, transparent 65%); }
+.connection-signal-track { position: relative; font: 500 clamp(11px, 2.3cqw, 18px)/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.connection-octets { display: flex; justify-content: space-between; gap: 12px; }
+.connection-octet { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.connection-byte-offset { font: 9px/1 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .05em; color: #657b8a; }
+.connection-byte { display: flex; gap: 1px; color: var(--connection-bit); white-space: nowrap; }
+.connection-bit {
+  --connection-charge-age: calc(var(--connection-light-progress) - var(--connection-charge-at, 2));
+  --connection-charge-rise: clamp(0, calc(var(--connection-charge-age) / var(--connection-charge-attack, .005)), 1);
+  --connection-charge-fall: clamp(0, calc(1 - max(0, var(--connection-charge-age) - var(--connection-charge-attack, .005)) / var(--connection-charge-decay, .06)), 1);
+  --connection-charge: calc(var(--connection-charge-rise) * var(--connection-charge-rise) * (3 - 2 * var(--connection-charge-rise)) * var(--connection-charge-fall) * var(--connection-charge-fall));
+  display: inline-block; transform-origin: center;
+  transform: translateY(calc(-.8px * var(--connection-charge))) scale(calc(1 + .14 * var(--connection-charge)));
+}
+/* Each receiving digit lights after its incoming bolt has crossed the gap. */
+.connection-octets-lit { position: absolute; inset: -8px 0; padding: 8px 0; pointer-events: none; }
+.connection-octets-lit .connection-byte-offset { visibility: hidden; }
+.connection-octets-lit .connection-byte { color: var(--connection-core); text-shadow: 0 0 3px var(--connection-core), 0 0 9px var(--connection-accent); }
+.connection-octets-lit .connection-bit { opacity: var(--connection-charge); }
+.connection-electricity { position: absolute; inset: -18px 0; width: 100%; height: calc(100% + 36px); overflow: visible; pointer-events: none; }
+.connection-electricity path { fill: none; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.connection-hop {
+  --connection-hop-phase: clamp(0, calc((var(--connection-light-progress) - var(--connection-hop-at, 2)) / var(--connection-hop-duration, 1)), 1);
+  --connection-leader: clamp(0, calc(var(--connection-hop-phase) / .18), 1);
+  --connection-strike: clamp(0, min(calc(var(--connection-hop-phase) * 12), calc((1 - var(--connection-hop-phase)) * 1.7)), 1);
+  opacity: var(--connection-strike);
+}
+.connection-arc-halo, .connection-arc-core { stroke-dasharray: 1; stroke-dashoffset: calc(1 - var(--connection-leader)); }
+.connection-arc-halo { stroke: var(--connection-accent); stroke-width: 3.5; opacity: .65; filter: blur(2px); }
+.connection-arc-core { stroke: var(--connection-core); stroke-width: 1.05; }
+.connection-arc-branches { stroke: var(--connection-accent); stroke-width: .65; opacity: calc(var(--connection-leader) * .65); }
+.connection-arc-contact { fill: var(--connection-core); opacity: clamp(0, calc((var(--connection-hop-phase) - .18) * 12), 1); filter: drop-shadow(0 0 3px var(--connection-accent)); }
+/* The sweep pauses on failure, but its stored charge must still dissipate.
+   Stop-only transitions leave the running pulse and successful finish intact. */
+.connection-signal.is-stopped .connection-electricity {
+  opacity: 0; transition: opacity 520ms cubic-bezier(.22, .61, .36, 1);
+}
+.connection-signal.is-stopped :is(.connection-arc-core, .connection-arc-branches, .connection-arc-contact) {
+  opacity: 0; transition: opacity 220ms ease-out;
+}
+.connection-signal.is-stopped .connection-octets-lit {
+  opacity: 0; transition: opacity 850ms cubic-bezier(.22, .61, .36, 1);
+}
+.connection-signal.is-stopped .connection-bit {
+  transform: none; transition: transform 850ms cubic-bezier(.22, .61, .36, 1);
+}
+.connection-signal.is-stopped .connection-signal-field {
+  opacity: .35; transition: opacity 900ms ease-out;
+}
+.connection-signal-ruler { margin-top: 20px; height: 5px; opacity: .5; border-top: 1px solid #7390a21c; background: repeating-linear-gradient(90deg, #7891a33a 0 1px, transparent 1px 12px); }
+.connection-signal-meta { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-top: -8px; font: 11px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; color: #829aa9; }
+.connection-elapsed { color: #a6bdca; font-variant-numeric: tabular-nums; letter-spacing: .04em; }
+.connection-details { margin-top: 30px; border-top: 1px solid #ffffff0b; padding-top: 16px; }
+.connection-details summary { cursor: pointer; display: flex; align-items: center; gap: 8px; width: fit-content; list-style: none; color: #a6b3c2; font-size: 11px; }
+.connection-details summary::-webkit-details-marker { display: none; }
+.connection-details summary svg { transform: rotate(-90deg); }
+.connection-details[open] summary svg { transform: none; }
+.connection-details pre { margin-top: 14px; border: 1px solid #ffffff0d; border-radius: 8px; background: #070d14; padding: 14px; color: #b8c3d1; font: 11px/1.8 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; user-select: text; }
+.connection-details-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 12px; color: #a6b3c2; font-size: 11px; }
+.connection-copy { display: inline-flex; align-items: center; gap: 6px; color: #a8c6e9; }
+.connection-unlock { margin-top: 24px; }
+.connection-unlock label { display: block; margin-bottom: 9px; font-size: 12px; color: #b9c4d0; }
+.connection-unlock-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.connection-unlock input { flex: 1; min-width: 140px; border: 1px solid #ffffff20; border-radius: 8px; background: #080e16; padding: 9px 12px; font-size: 12px; color: #e5eaf0; }
+.connection-action-error { font-size: 12px; line-height: 1.7; margin-top: 14px; color: #f09b94; }
+@keyframes connection-light-sweep {
+  from { --connection-light-progress: 0; }
+  to { --connection-light-progress: 1; }
+}
+@container (max-width: 840px) {
+  .connection-shell { padding: 22px; }
+  .connection-header { display: block; }
+  .connection-route { margin-top: 7px; }
+  .connection-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; padding-top: 36px; }
+  .connection-main { display: contents; }
+  .connection-main > [role='status'] { grid-row: 1; }
+  .connection-activity { padding: 0 12px; }
+  .connection-pending .connection-activity { grid-row: 2; }
+  .connection-warning .connection-activity { display: none; }
+  .connection-actions, .connection-hint, .connection-unlock, .connection-details, .connection-retry-note, .connection-action-error { margin-top: 0; }
+  .connection-signal { padding-top: 16px; }
+  .connection-signal::before, .connection-signal::after { top: 30px; }
+  .connection-title { font-size: 28px; }
+}
+@container (max-width: 460px) {
+  .connection-octet:nth-child(n+5) { display: none; }
+  .connection-signal-track { font-size: clamp(11px, 3cqw, 17px); }
+}
+@container (max-width: 360px) {
+  .connection-shell { padding: 16px; }
+  .connection-title { font-size: 25px; }
+  .connection-signal-meta { font-size: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .connection-screen, .connection-screen * { animation: none !important; transition: none !important; }
+  .connection-electricity, .connection-octets-lit { display: none; }
+  .connection-bit { transform: none; }
+  .connection-octet:nth-child(2) .connection-byte { color: var(--connection-accent); }
+}

@@ -1,0 +1,21 @@
+{
+  "adapter_path": "backend-rs/vendor/libsqlite3-sys",
+  "adapter_hashes": {
+    "Cargo.toml": "717a07cf72efc4d2c2271414d0a5bac31db8d2e2da9b18971ff9f37f1eab1e6b",
+    "build.rs": "6f2087fbea2e36fb68526fd21995cc7056aad3496c54f0c426ffce8aadec2352",
+    "src/lib.rs": "eab89279824215a35037de25c69482b4a748ff4c3065f9d91e9407bcdea728e8",
+    "src/error.rs": "c09656237b7e51eec9cac261de83555e60c401071eeaecb7649f8e94b769c156",
+    "src/bindings.rs": "db41bc0a349374775c06c3df5d4b50d9b54ed4d38b1d2f69ccb5005d47b02b4f"
+  },
+  "source": {
+    "name": "sqlcipher-src",
+    "version": "420.0.0+sqlcipher-4.20.0-sqlite-3.54.1-libtomcrypt-1.18.2",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "checksum": "fd6b5280ed2593d07b2816ec531821c15c306903bcca224716f1fbcc2bbfedfe"
+  },
+  "runtime": {
+    "cipher_version": "4.20.0 community",
+    "sqlite_source_id": "2026-10-16 14:45:20 555e07ef33f69a0957d24d8e555b702464a131d6f1607f4c3c1e4551e8e6alt1",
+    "sqlite_version": "3.54.1"
+  }
+}

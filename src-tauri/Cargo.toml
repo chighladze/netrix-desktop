@@ -1,0 +1,32 @@
+[package]
+name = "netrix"
+version = "0.3.0-beta.8"
+edition = "2021"
+
+[dependencies]
+tauri = { version = "2.1", features = [] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-shell = "2.1"
+tauri-plugin-clipboard-manager = "2.1"
+tauri-plugin-window-state = "2.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.20.0", features = ["v4"] }
+zeroize = "1.8"
+
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
+tokio = { version = "1", features = ["time"] }
+webview2-com = "0.39.1"
+windows-core = "0.62"
+windows-sys = { version = "0.59", features = [
+  "Win32_System_JobObjects",
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Threading",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+[build-dependencies]
+tauri-build = { version = "2.1", features = [] }

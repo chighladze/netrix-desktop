@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-wait-terminal-drag-release"
+description = "Enables the wait_terminal_drag_release command without any pre-configured scope."
+commands.allow = ["wait_terminal_drag_release"]
+
+[[permission]]
+identifier = "deny-wait-terminal-drag-release"
+description = "Denies the wait_terminal_drag_release command without any pre-configured scope."
+commands.deny = ["wait_terminal_drag_release"]

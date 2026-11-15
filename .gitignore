@@ -1,0 +1,81 @@
+# ──────────────────────────────────────────
+# Netrix .gitignore
+# ──────────────────────────────────────────
+
+# ── General ──
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.log
+tmp/
+temp/
+
+# ── Node / Frontend ──
+node_modules/
+dist/
+coverage/
+.vite/
+*.tsbuildinfo
+.eslintcache
+.cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ── Environment Variables ──
+.env
+.env.local
+.env.*.local
+
+# ── Rust / Backend ──
+backend-rs/target/
+backend-rs/target-test/
+src-tauri/target/
+
+# ── Compiled Binaries ──
+src-tauri/binaries/
+*.exe
+
+# ── Database (CRITICAL — never commit user data) ──
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+encryption-backup-*/
+.database-encryption-*.tmp
+.database-lock
+backend-rs/data/
+
+# ── Vault / Security (CRITICAL — never commit secrets) ──
+*.key
+*.pem
+.database-key*
+.vault_salt
+.secret_key
+id_rsa
+id_rsa.pub
+known_hosts
+
+# ── IDEs ──
+.vscode/
+.idea/
+*.code-workspace
+
+# ── Tauri ──
+src-tauri/gen/
+src-tauri/.tauri/
+
+# ── Reference code (local only) ──
+alacritty-master/
+kitty-master/
+
+# ── Netrix Agent / Audit ──
+.agent/
+AUDIT.md
+AUDIT_*.md
+release-artifacts/
+.tools/cargo-audit/
+release-check.log

@@ -1,0 +1,116 @@
+name: Windows checks and optional installer
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      build_installer:
+        description: Build an unsigned Windows installer artifact
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: ["24.0.0", "24"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --engine-strict --prefix frontend
+      - run: npm run test:run --prefix frontend
+      - run: npm run typecheck --prefix frontend
+      - run: npm run build --prefix frontend
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+      - name: Scan for secrets
+        shell: pwsh
+        run: |
+          $scanDirectory = Join-Path $env:RUNNER_TEMP 'netrix-gitleaks'
+          New-Item -ItemType Directory -Force -Path $scanDirectory | Out-Null
+          $archive = Join-Path $scanDirectory 'gitleaks.zip'
+          Invoke-WebRequest 'https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_windows_x64.zip' -OutFile $archive
+          if ((Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash -ne 'D29144DEFF3A68AA93CED33DDDF84B7FDC26070ADD4AA0F4513094C8332AFC4E') { throw 'Scanner checksum mismatch.' }
+          Expand-Archive -LiteralPath $archive -DestinationPath $scanDirectory
+          & (Join-Path $scanDirectory 'gitleaks.exe') dir . --redact=100 --no-banner --no-color
+          if ($LASTEXITCODE -ne 0) { throw 'Secret scan failed.' }
+      - name: Install Rust
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          if ($LASTEXITCODE -ne 0) { throw 'Rust installation failed.' }
+          rustup default stable
+          if ($LASTEXITCODE -ne 0) { throw 'Rust selection failed.' }
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            backend-rs/target
+            src-tauri/target
+          key: windows-rust-${{ hashFiles('backend-rs/Cargo.lock', 'src-tauri/Cargo.lock') }}-v1
+      - name: Install root dependencies
+        run: npm ci --engine-strict
+      - name: Install frontend dependencies
+        run: npm ci --engine-strict --prefix frontend
+      - name: Check Rust formatting
+        run: npm run check:fmt
+      - name: Check source and tests
+        run: npm run check
+      - name: Stage debug sidecar
+        run: npm run build:sidecar:debug
+      - name: Check native shell
+        run: npm run check:tauri
+      - name: Test native shell
+        run: npm run test:tauri
+      - name: Build optional unsigned installer
+        if: github.event_name == 'workflow_dispatch' && inputs.build_installer
+        shell: pwsh
+        run: |
+          npm run build
+          if ($LASTEXITCODE -ne 0) { throw 'Installer build failed.' }
+          npm run test:installer
+          if ($LASTEXITCODE -ne 0) { throw 'Installer hook tests failed.' }
+          npm run check:windows:binaries
+          if ($LASTEXITCODE -ne 0) { throw 'Binary dependency check failed.' }
+          npm run hash:installers
+          if ($LASTEXITCODE -ne 0) { throw 'Installer hashing failed.' }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: github.event_name == 'workflow_dispatch' && inputs.build_installer
+        with:
+          name: netrix-windows-unsigned-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/installer-hashes.sha256

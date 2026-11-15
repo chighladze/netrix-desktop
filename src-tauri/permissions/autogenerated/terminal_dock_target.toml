@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-terminal-dock-target"
+description = "Enables the terminal_dock_target command without any pre-configured scope."
+commands.allow = ["terminal_dock_target"]
+
+[[permission]]
+identifier = "deny-terminal-dock-target"
+description = "Denies the terminal_dock_target command without any pre-configured scope."
+commands.deny = ["terminal_dock_target"]

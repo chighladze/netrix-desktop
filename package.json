@@ -1,0 +1,44 @@
+{
+  "name": "netrix",
+  "version": "0.3.0-beta.8",
+  "description": "Next-Generation Terminal with SSH and Telnet support",
+  "main": "index.js",
+  "engines": {
+    "node": "^24.0.0"
+  },
+  "scripts": {
+    "clean": "powershell -Command \"Remove-Item -Path 'src-tauri/target' -Recurse -Force -ErrorAction SilentlyContinue\"",
+    "install:all": "npm install && cd frontend && npm install",
+    "dev": "npm run tauri dev",
+    "build": "npm run tauri build",
+    "check:backend": "cargo check --manifest-path backend-rs/Cargo.toml",
+    "test:tauri": "cargo test --locked --manifest-path src-tauri/Cargo.toml",
+    "test:scripts": "node --test scripts/tests/validation.test.mjs scripts/tests/windows-release.test.mjs",
+    "check:tauri": "cargo check --manifest-path src-tauri/Cargo.toml",
+    "check:fmt:backend": "cargo fmt --manifest-path backend-rs/Cargo.toml -- --check",
+    "check:fmt:tauri": "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
+    "check:fmt": "npm run check:fmt:backend && npm run check:fmt:tauri",
+    "lint:backend": "cargo clippy --manifest-path backend-rs/Cargo.toml --all-targets -- -D warnings",
+    "test:backend": "cargo test --manifest-path backend-rs/Cargo.toml",
+    "check:frontend": "npm run test:run --prefix frontend && npm run typecheck --prefix frontend && npm run build --prefix frontend",
+    "test:e2e:desktop": "node scripts/desktop-e2e.mjs",
+    "test:e2e:desktop:build": "node scripts/build-desktop-e2e.mjs",
+    "check": "npm run test:scripts && npm run check:backend && npm run lint:backend && npm run test:backend && npm run check:frontend",
+    "audit:backend": "node scripts/audit-backend.mjs",
+    "audit:tauri": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/audit-tauri-windows.ps1",
+    "release:check": "npm run check:fmt && npm run check && npm run build:sidecar:debug && npm run check:tauri && npm run test:tauri && npm run build && npm run test:installer && npm run check:windows:binaries && npm run hash:installers && npm audit && npm audit --prefix frontend && npm run audit:backend && npm run audit:tauri",
+    "test:installer": "node --test scripts/tests/installer-runtime.test.mjs",
+    "check:windows:binaries": "node scripts/verify-windows-binaries.mjs",
+    "build:sidecar:debug": "cargo build --locked --manifest-path backend-rs/Cargo.toml && npm run prepare:sidecar:debug",
+    "build:sidecar:release": "node scripts/build-sidecar.mjs",
+    "prepare:sidecar:release": "node scripts/prepare-sidecar.mjs release",
+    "prepare:sidecar:debug": "node scripts/prepare-sidecar.mjs debug",
+    "hash:installers": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/write-installer-hashes.ps1",
+    "format": "npx prettier --write \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "prettier": "^3.0.0"
+  }
+}

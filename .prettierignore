@@ -1,0 +1,8 @@
+node_modules
+dist
+src-tauri/target
+backend-rs/target
+alacritty-master
+kitty-master
+.agent
+*.exe

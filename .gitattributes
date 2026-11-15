@@ -1,0 +1,25 @@
+# GitHub Linguist language statistics
+# Keep generated, vendored, and documentation-heavy files out of language percentages.
+
+# Lockfiles are committed for reproducible builds but should not dominate stats.
+**/Cargo.lock linguist-generated=true
+**/package-lock.json linguist-generated=true
+
+# Build/generated outputs, in case they are ever present in the index.
+backend-rs/target/** linguist-generated=true
+backend-rs/target-test/** linguist-generated=true
+src-tauri/target/** linguist-generated=true
+src-tauri/gen/** linguist-generated=true
+frontend/dist/** linguist-generated=true
+
+# Static assets and icons are not source-language signal.
+frontend/public/** linguist-vendored=true
+src-tauri/icons/** linguist-vendored=true
+*.png linguist-vendored=true
+*.ico linguist-vendored=true
+
+# Project prose should stay visible in GitHub, but not in language percentages.
+*.md linguist-documentation=true
+docs/** linguist-documentation=true
+.github/ISSUE_TEMPLATE/** linguist-documentation=true
+.github/PULL_REQUEST_TEMPLATE.md linguist-documentation=true

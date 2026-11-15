@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-watch-sftp-save-access"
+description = "Enables the watch_sftp_save_access command without any pre-configured scope."
+commands.allow = ["watch_sftp_save_access"]
+
+[[permission]]
+identifier = "deny-watch-sftp-save-access"
+description = "Denies the watch_sftp_save_access command without any pre-configured scope."
+commands.deny = ["watch_sftp_save_access"]

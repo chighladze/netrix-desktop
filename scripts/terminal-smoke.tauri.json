@@ -1,0 +1,4 @@
+{
+  "identifier": "com.netrix.terminal-smoke",
+  "build": { "devUrl": "http://127.0.0.1:3017" }
+}

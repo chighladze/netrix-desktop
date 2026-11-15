@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a bug
+    url: https://github.com/chighladze/netrix-releases/issues/new?template=bug-report.yml
+    about: Keep installer and application bug reports in the existing issue tracker.
+  - name: Request a feature
+    url: https://github.com/chighladze/netrix-releases/issues/new?template=feature-request.yml
+    about: Suggest an improvement to Netrix.
+  - name: Contribute code
+    url: https://github.com/chighladze/netrix-desktop/blob/main/CONTRIBUTING.md
+    about: Fork the source and open a focused pull request.

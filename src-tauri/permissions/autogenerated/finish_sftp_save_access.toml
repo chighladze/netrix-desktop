@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-finish-sftp-save-access"
+description = "Enables the finish_sftp_save_access command without any pre-configured scope."
+commands.allow = ["finish_sftp_save_access"]
+
+[[permission]]
+identifier = "deny-finish-sftp-save-access"
+description = "Denies the finish_sftp_save_access command without any pre-configured scope."
+commands.deny = ["finish_sftp_save_access"]
