@@ -33,6 +33,7 @@ interface HelpCenterModalProps {
   onNavigate: (view: View) => void;
   onCreateVault: (masterPassword: string) => Promise<VaultActionResult>;
   onUnlockVault: () => void;
+  onReportProblem: () => void;
 }
 
 const workspaceItems: Array<{
@@ -89,6 +90,7 @@ const HelpCenterModal: React.FC<HelpCenterModalProps> = ({
   onNavigate,
   onCreateVault,
   onUnlockVault,
+  onReportProblem,
 }) => {
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -348,6 +350,10 @@ const HelpCenterModal: React.FC<HelpCenterModalProps> = ({
             <LuShieldCheck size={14} className="text-emerald-400/80" />
             Credentials stay encrypted locally and are never stored in this guide.
           </div>
+          <button type="button" onClick={onReportProblem}
+            className="h-9 shrink-0 rounded-lg border border-primary/30 bg-primary/10 px-4 text-xs font-semibold text-primary focus:outline-none focus:ring-2 focus:ring-primary/40">
+            Report problem
+          </button>
           <button
             type="button"
             onClick={onClose}

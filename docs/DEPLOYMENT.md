@@ -26,7 +26,7 @@ Netrix is packaged as a Tauri desktop app with a bundled Rust backend sidecar.
 ## Development Run
 
 ```bash
-cargo build --manifest-path backend-rs/Cargo.toml
+npm run build:sidecar:debug
 npm run tauri dev
 ```
 
@@ -42,11 +42,10 @@ The Tauri config runs:
 
 ```bash
 npm run build --prefix frontend
-cargo build --release --manifest-path backend-rs/Cargo.toml
-node scripts/prepare-sidecar.mjs release
+npm run build:sidecar:release
 ```
 
-`scripts/prepare-sidecar.mjs` detects the Rust target triple, copies `backend-rs/target/<profile>/netrix_backend(.exe)` into `src-tauri/binaries/` as `netrix_backend-<target-triple>(.exe)`, and Tauri bundles it through `externalBin`.
+`scripts/build-sidecar.mjs` uses Tauri's target triple, a dedicated backend Cargo target directory and static CRT on Windows MSVC. `scripts/prepare-sidecar.mjs` stages `backend-rs/target/<target-triple>/release/netrix_backend.exe` as `src-tauri/binaries/netrix_backend-<target-triple>.exe`. NSIS installs the `externalBin` entry as `netrix_backend.exe` beside the shell. Build the pair together to keep the pipe protocol and HTTP contract aligned.
 
 ## Application Icons
 
@@ -56,9 +55,9 @@ The original Netrix artwork is preserved in `frontend/public/icon.png`, with its
 
 Keep the root/frontend package manifests, both Cargo package versions, Tauri
 configuration and their lockfiles synchronized. The sidebar and About dialog
-read the frontend package version at build time. Update `CHANGELOG.md` and the
-README badge, then verify consistency with
-`powershell -File scripts/check-release-version.ps1 -Tag v0.3.0`.
+read the frontend package version at build time. Update `CHANGELOG.md` and
+the download links, then check the tag with
+`pwsh -File scripts/check-release-version.ps1 -Tag v0.3.0-beta.9`.
 
 Before publishing a release artifact, run:
 
@@ -89,12 +88,9 @@ Beta.4 used `embedBootstrapper`, which bundles only the small downloader and sti
 requires internet during runtime installation. An owner report from another PC
 showed a missing-runtime launch error. The screenshot alone does not distinguish
 download failure, a damaged runtime, a stale registration or a user-scope issue.
-The offline package removes the download dependency; it does not bypass Windows
-policy or establish successful installation on that PC without a new runtime test.
-See [the public build guide](build_instructions.md) for recovery and QA.
-The isolated packaging check on 2026-11-13 produced a 225,465,558-byte EXE and
-verified the embedded Microsoft installer's signature; no missing-runtime install
-was exercised. See [the published release notes](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.8). Distribution behavior is described
+The 225,459,245-byte beta.9 installer supplied the missing WebView2 runtime on a
+fresh, offline Windows 10 Enterprise LTSC 2021 x64 VM under a standard user
+account. See [the beta.9 installer results](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.9). Distribution behavior is described
 in [Tauri's packaging documentation](https://v2.tauri.app/distribute/windows-installer/#webview2-installation-options)
 and [Microsoft's runtime guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution).
 
@@ -108,9 +104,8 @@ See [the build guide](build_instructions.md) and [source snapshot](../SOURCE_SNA
 
 ## Runtime Configuration
 
-- Backend port is random per app start.
-- API token is random per app start.
-- Backend process receives port and parent PID as args, and token through stdin.
+- The backend binds `127.0.0.1:0` and keeps the OS-assigned listener until shutdown.
+- Tauri generates a new token per launch and starts the backend with `--managed`. It sends the token through private stdin and reads the listener port from private stdout. EOF on stdin starts shutdown and also covers a lost parent when the Job Object could not be assigned.
 - Tauri reports sidecar state through `get_backend_status`: `starting`, `ready`, or `failed`. It reports `ready` only after an authenticated `GET /health` returns HTTP 200. Frontend startup waits for `ready` and surfaces the safe `message` when startup reaches `failed`.
 - Backend exits when Tauri exits.
 - Windows production uses `windows_subsystem = "windows"`, so shell errors are also written to `%APPDATA%/com.netrix.app/tauri_main.log`.
@@ -119,27 +114,21 @@ See [the build guide](build_instructions.md) and [source snapshot](../SOURCE_SNA
 ## Artifacts
 
 - Backend debug binary: `backend-rs/target/debug/netrix_backend(.exe)`.
-- Backend release binary: `backend-rs/target/release/netrix_backend(.exe)`.
+- Backend release binary: `backend-rs/target/<target-triple>/release/netrix_backend(.exe)`.
 - Prepared sidecar: `src-tauri/binaries/netrix_backend-<target-triple>(.exe)`.
 - Tauri NSIS output: `src-tauri/target/release/bundle/nsis/*.exe`.
 - Installer hashes: `src-tauri/target/release/bundle/installer-hashes.sha256`.
 
 ## Installer Runtime Validation
 
-Before publishing a Windows installer, follow `docs/INSTALLER_RUNTIME_TEST_PLAN.md`. It covers clean-profile install, launch, backend sidecar startup, SSH connection, restart persistence, uninstall/reinstall behavior, clean reinstall behavior, and installer SHA256 verification.
-
-Before every release, record the actual manual QA result in `docs/RELEASE_QA.md`.
-For public beta releases, the required manual pass/fail gate is summarized in
-`docs/BETA_READINESS.md`.
-
-## CI Coverage
-
-Current pull-request CI checks Rust formatting for backend and Tauri, backend compile, backend clippy with warnings denied, backend tests, frontend unit tests/typecheck/build, a dedicated Windows `cargo check`, and a real Tauri/Edge WebDriver startup smoke test. The tag workflow runs full npm and Rust dependency audits through `release:check`, packages the NSIS installer, signs stable releases, and optionally creates a public-repository draft. CI still does not install and uninstall the generated NSIS package; exact-installer runtime QA remains a publication gate.
+Record the SHA-256 of the exact installer tested and the observed results for
+first launch, upgrade, restart and offline installation. Follow the
+[installed-build checks](build_instructions.md#verify-an-installed-build).
 
 ## Deployment Risks
 
 - Packaging depends on the sidecar name matching Tauri `externalBin` expectations.
 - Frontend production build uses manual vendor chunks for React, Tauri APIs, icons, xterm, and other vendor code.
-- Prerelease NSIS installers may be unsigned for tester distribution; stable publishing requires a valid Authenticode signature.
+- Prerelease NSIS installers may be unsigned for tester distribution. Stable publishing requires verified Authenticode signatures for the complete payload and installer.
 - Linux and macOS packaging are roadmap items, not validated in the current CI.
 - Tauri CSP still allows inline styles, and desktop permissions should be reviewed before distributing beyond trusted users.

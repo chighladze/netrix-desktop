@@ -7,6 +7,7 @@ import AppSecurityBoundary from "./AppSecurityBoundary";
 import { SECURITY_CHANGED_EVENT } from "./api";
 
 const mock = vi.hoisted(() => ({ fetch: vi.fn(), invoke: vi.fn(), readiness: vi.fn(), writeText: vi.fn(), label: "main", mount: vi.fn(), unmount: vi.fn() }));
+const windowMock = vi.hoisted(() => ({ onCloseRequested: vi.fn(), close: vi.fn() }));
 vi.mock("../../api", async (original) => ({ ...await original<typeof import("../../api")>(),
   getApiBase: async () => "http://localhost:1234", fetchJsonOrThrow: mock.fetch,
   waitForBackendReady: mock.readiness,
@@ -14,8 +15,10 @@ vi.mock("../../api", async (original) => ({ ...await original<typeof import("../
 vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({ writeText: mock.writeText }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mock.invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => {}), emit: vi.fn().mockResolvedValue(undefined) }));
-vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ label: mock.label, show: vi.fn().mockResolvedValue(undefined) }) }));
-vi.mock("../../components/TitleBar", () => ({ default: () => null }));
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({ label: mock.label, show: vi.fn().mockResolvedValue(undefined), ...windowMock }),
+}));
+vi.mock("../../components/TitleBar", () => ({ default: ({ onClose }: { onClose: () => void }) => <button onClick={onClose}>Close window</button> }));
 
 function Session() {
   React.useEffect(() => { mock.mount(); return mock.unmount; }, []);
@@ -30,6 +33,8 @@ beforeEach(() => {
   mock.readiness.mockResolvedValue({ status: "ready" });
   mock.invoke.mockReset();
   mock.invoke.mockResolvedValue(undefined);
+  windowMock.onCloseRequested.mockResolvedValue(() => {});
+  windowMock.close.mockResolvedValue(undefined);
   mock.writeText.mockResolvedValue(undefined);
   snapshot = { locked: false, revision: 1, vault_unlocked: true, vault_initialized: true };
   useAppStore.setState({ settings: createDefaultSettings(), appSecurity: { locked: null, revision: -1, error: null } });
@@ -37,6 +42,56 @@ beforeEach(() => {
 });
 
 describe("shared application lock", () => {
+  it("handles a native main close before readiness and preserves exit confirmation", async () => {
+    mock.readiness.mockReturnValue(new Promise(() => {}));
+    render(<AppSecurityBoundary><Session /></AppSecurityBoundary>);
+    const close = windowMock.onCloseRequested.mock.calls[0][0];
+    const preventDefault = vi.fn();
+    act(() => close({ preventDefault }));
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(mock.invoke).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Exit Netrix" }));
+    await waitFor(() => expect(mock.invoke).toHaveBeenCalledWith("quit_app"));
+    expect(mock.mount).not.toHaveBeenCalled();
+  });
+
+  it.each(["detached-test", "map-test"])("closes failed %s without requesting app exit", async (label) => {
+    mock.label = label;
+    mock.readiness.mockResolvedValue({ status: "failed" });
+    render(<AppSecurityBoundary><Session /></AppSecurityBoundary>);
+    await screen.findByRole("heading", { name: "Netrix service unavailable" });
+    fireEvent.click(screen.getByRole("button", { name: "Close window" }));
+    if (label === "map-test") expect(windowMock.close).toHaveBeenCalledOnce();
+    else expect(mock.invoke).toHaveBeenCalledWith("close_terminal_window");
+    expect(mock.invoke).not.toHaveBeenCalledWith("quit_app");
+    expect(windowMock.onCloseRequested).not.toHaveBeenCalled();
+  });
+
+  it("reports a startup failure without mounting the workspace or contacting the backend", async () => {
+    mock.readiness.mockResolvedValue({ status: "failed", message: "Cannot open C:\\Users\\private-user\\workspace",
+      log_path: "C:\\Users\\private-user\\tauri_main.log" });
+    mock.invoke.mockImplementation(async (command: string) => command === "get_problem_report_diagnostics" ? {
+      app_version: "0.3.0-beta.8", operating_system: "Windows 10.0 (build 26100)", architecture: "x86_64",
+      backend_status: "failed", reason: "workspace_access_denied", exit_code: 1, os_error: 5,
+    } : undefined);
+    render(<AppSecurityBoundary><Session /></AppSecurityBoundary>);
+    fireEvent.click(await screen.findByRole("button", { name: "Report problem" }));
+    fireEvent.change(screen.getByLabelText("What were you doing?"), { target: { value: "Opening Netrix" } });
+    fireEvent.change(screen.getByLabelText("What did you expect?"), { target: { value: "Open my workspace" } });
+    await waitFor(() => expect(screen.getByRole<HTMLButtonElement>("button", { name: "Preview report" }).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Preview report" }));
+    const preview = screen.getByLabelText("Report preview");
+    expect(preview.textContent).toContain("workspace_access_denied");
+    expect(preview.textContent).not.toContain("private-user");
+    expect(mock.mount).not.toHaveBeenCalled();
+    expect(mock.fetch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Open GitHub form" }));
+    await waitFor(() => expect(mock.invoke).toHaveBeenCalledWith("open_problem_report", expect.any(Object)));
+    fireEvent.click(screen.getByRole("button", { name: "Close problem report" }));
+    expect(await screen.findByRole("heading", { name: "Netrix service unavailable" })).toBeTruthy();
+    expect(screen.queryByRole("textbox", { name: "Session input" })).toBeNull();
+  });
+
   it("shows recovery and copyable diagnostics instead of waiting after a failed startup", async () => {
     mock.readiness.mockResolvedValue({ status: "failed", message: "A runtime library is missing.",
       diagnostic: { code: "missing_runtime_library", message: "A runtime library is missing.",

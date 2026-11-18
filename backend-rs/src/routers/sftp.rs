@@ -395,7 +395,7 @@ async fn download_file(
     let id = job.info().id;
     let (output, receiver) = mpsc::channel(4);
     let remote_path = path.clone();
-    tokio::spawn(async move {
+    st.sftp.clone().spawn_transfer(async move {
         let _lease = lease;
         let _guard = WorkerGuard(job.clone());
         let result = st
@@ -494,7 +494,7 @@ async fn upload_file(
             .into_data_stream()
             .map_err(std::io::Error::other),
     );
-    let task = tokio::spawn(async move {
+    let task = st.sftp.clone().spawn_transfer(async move {
         let _lease = lease;
         let _guard = WorkerGuard(job.clone());
         let result = st

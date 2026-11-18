@@ -12,6 +12,10 @@ use russh::keys::PublicKeyBase64;
 use russh::keys::PublicKeyOrCertificate;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{broadcast, Mutex, RwLock};
+use tokio_util::{
+    sync::CancellationToken,
+    task::{task_tracker::TaskTrackerToken, TaskTracker},
+};
 use tracing::{debug, info, warn};
 
 use crate::ssh::known_hosts::{HostKeyResult, KnownHostsStore};
@@ -286,6 +290,8 @@ struct Inner {
     sessions: RwLock<HashMap<i64, SessionHandle>>,
     breaker: Mutex<CircuitBreaker>,
     known_hosts: KnownHostsStore,
+    stop: CancellationToken,
+    sockets: TaskTracker,
 }
 
 impl SessionManager {
@@ -364,6 +370,10 @@ impl SessionManager {
     }
 
     pub fn with_known_hosts(known_hosts: KnownHostsStore) -> Self {
+        Self::with_shutdown(known_hosts, CancellationToken::new())
+    }
+
+    pub(crate) fn with_shutdown(known_hosts: KnownHostsStore, stop: CancellationToken) -> Self {
         Self {
             inner: Arc::new(Inner {
                 workspace_gate: Arc::new(RwLock::new(())),
@@ -371,6 +381,8 @@ impl SessionManager {
                 sessions: RwLock::new(HashMap::new()),
                 breaker: Mutex::new(CircuitBreaker::new()),
                 known_hosts,
+                stop,
+                sockets: TaskTracker::new(),
             }),
         }
     }
@@ -1333,6 +1345,20 @@ impl SessionManager {
 
     // ── Session cleanup ─────────────────────────────────────────────
 
+    pub(crate) fn track_socket(&self) -> (TaskTrackerToken, CancellationToken) {
+        (self.inner.sockets.token(), self.inner.stop.clone())
+    }
+
+    pub(crate) async fn shutdown(&self) {
+        self.inner.stop.cancel();
+        // Upgrades escape Axum's connection drain. Wait for their callbacks
+        // to drop their connect/bridge futures before sweeping the registry.
+        self.inner.sockets.close();
+        self.inner.sockets.wait().await;
+        let ids: Vec<_> = self.inner.sessions.read().await.keys().copied().collect();
+        futures::future::join_all(ids.into_iter().map(|id| self.cleanup(id))).await;
+    }
+
     pub async fn cleanup(&self, id: i64) -> bool {
         if let Some(handle) = self.get(id).await {
             self.cleanup_owned(id, &handle).await
@@ -1457,14 +1483,11 @@ impl SessionManager {
         }
     }
 
-    pub fn start_monitor(self: &Arc<Self>) {
-        let mgr = Arc::clone(self);
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(SESSION_MONITOR_INTERVAL).await;
-                mgr.cleanup_terminal_and_expired_sessions().await;
-            }
-        });
+    pub(crate) async fn monitor(self) {
+        loop {
+            tokio::time::sleep(SESSION_MONITOR_INTERVAL).await;
+            self.cleanup_terminal_and_expired_sessions().await;
+        }
     }
 }
 

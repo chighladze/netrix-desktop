@@ -15,9 +15,12 @@ if ($Installers.Count -ne 1) { throw 'Expected exactly one NSIS installer from t
 if ((Test-Path -LiteralPath $ArtifactDirectory) -and @(Get-ChildItem -LiteralPath $ArtifactDirectory -Force).Count -gt 0) {
     throw 'Artifact directory must be empty; do not reuse files from another build.'
 }
+& (Join-Path $PSScriptRoot 'sign-windows-bundle.ps1') -Tag $Tag -InstallerPath $Installers[0].FullName
 New-Item -ItemType Directory -Path $ArtifactDirectory -Force | Out-Null
-Copy-Item -LiteralPath $Installers[0].FullName -Destination $ArtifactDirectory
-& (Join-Path $PSScriptRoot 'sign-windows-installer.ps1') -Tag $Tag -ArtifactDirectory $ArtifactDirectory
+$ArtifactInstaller = Join-Path $ArtifactDirectory $Installers[0].Name
+Copy-Item -LiteralPath $Installers[0].FullName -Destination $ArtifactInstaller
+$Hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $ArtifactInstaller).Hash
+"$Hash  $($Installers[0].Name)" | Set-Content -LiteralPath (Join-Path $ArtifactDirectory 'installer-hashes.sha256') -Encoding ascii
 $Package = Get-VerifiedReleasePackage $Tag $ArtifactDirectory
 $Metadata = [ordered]@{
     schemaVersion = 1
@@ -34,7 +37,7 @@ $Metadata = [ordered]@{
 }
 $Metadata | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Package.Root 'release.json') -Encoding UTF8
 $SignatureNote = if ($Package.SigningStatus -eq 'signed') {
-    'The installer has a verified Authenticode signature.'
+    'The shell, backend sidecar and installer have verified timestamped Authenticode signatures.'
 } else {
     'This is an unsigned prerelease. Windows may display an unknown-publisher warning.'
 }

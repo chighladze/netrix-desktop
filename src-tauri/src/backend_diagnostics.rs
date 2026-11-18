@@ -11,6 +11,13 @@ pub struct BackendDiagnostic {
     pub message: &'static str,
     pub recovery: &'static str,
     pub details: String,
+    // Structured numbers for opt-in reports; never parse the display/log text.
+    #[serde(skip)]
+    pub exit_code: Option<i32>,
+    #[serde(skip)]
+    pub signal: Option<i32>,
+    #[serde(skip)]
+    pub os_error: Option<i32>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -122,9 +129,9 @@ pub fn terminated(
         || "unavailable".into(),
         |value| format!("{value} (0x{:08X})", value as u32),
     );
-    let signal = signal.map_or_else(|| "none".into(), |value| value.to_string());
+    let signal_text = signal.map_or_else(|| "none".into(), |value| value.to_string());
     let mut details = format!(
-        "Netrix version: {}\nReason: {reason}\nBackend exit code: {exit}\nSignal: {signal}",
+        "Netrix version: {}\nReason: {reason}\nBackend exit code: {exit}\nSignal: {signal_text}",
         env!("CARGO_PKG_VERSION")
     );
     if let Some(os_error) = report.and_then(|value| value.os_error) {
@@ -135,6 +142,9 @@ pub fn terminated(
         message,
         recovery,
         details,
+        exit_code: code,
+        signal,
+        os_error: report.and_then(|value| value.os_error),
     }
 }
 

@@ -147,17 +147,15 @@ impl AppSecurity {
     }
 }
 
-pub fn start_monitor(st: AppState) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(1));
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        loop {
-            interval.tick().await;
-            if let Err(error) = st.security.check_inactivity(&st).await {
-                tracing::error!("Could not apply inactivity lock: {error}");
-            }
+pub(crate) async fn monitor(st: AppState) {
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        interval.tick().await;
+        if let Err(error) = st.security.check_inactivity(&st).await {
+            tracing::error!("Could not apply inactivity lock: {error}");
         }
-    })
+    }
 }
 
 #[cfg(test)]

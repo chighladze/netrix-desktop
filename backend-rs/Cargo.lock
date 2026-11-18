@@ -1865,7 +1865,7 @@ dependencies = [
 
 [[package]]
 name = "netrix-backend"
-version = "0.3.0-beta.8"
+version = "0.3.0-beta.9"
 dependencies = [
  "aes-gcm 0.10.3",
  "anyhow",

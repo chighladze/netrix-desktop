@@ -82,6 +82,8 @@ jobs:
         run: npm ci --engine-strict
       - name: Install frontend dependencies
         run: npm ci --engine-strict --prefix frontend
+      - name: Audit frontend npm dependencies
+        run: npm run audit:frontend
       - name: Check Rust formatting
         run: npm run check:fmt
       - name: Check source and tests

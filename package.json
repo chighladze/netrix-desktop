@@ -1,6 +1,6 @@
 {
   "name": "netrix",
-  "version": "0.3.0-beta.8",
+  "version": "0.3.0-beta.9",
   "description": "Next-Generation Terminal with SSH and Telnet support",
   "main": "index.js",
   "engines": {
@@ -24,12 +24,13 @@
     "test:e2e:desktop": "node scripts/desktop-e2e.mjs",
     "test:e2e:desktop:build": "node scripts/build-desktop-e2e.mjs",
     "check": "npm run test:scripts && npm run check:backend && npm run lint:backend && npm run test:backend && npm run check:frontend",
+    "audit:frontend": "npm audit --prefix frontend --omit=dev --audit-level=info && node scripts/audit-frontend.mjs",
     "audit:backend": "node scripts/audit-backend.mjs",
     "audit:tauri": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/audit-tauri-windows.ps1",
-    "release:check": "npm run check:fmt && npm run check && npm run build:sidecar:debug && npm run check:tauri && npm run test:tauri && npm run build && npm run test:installer && npm run check:windows:binaries && npm run hash:installers && npm audit && npm audit --prefix frontend && npm run audit:backend && npm run audit:tauri",
+    "release:check": "npm audit && npm run audit:frontend && npm run check:fmt && npm run check && npm run build:sidecar:debug && npm run check:tauri && npm run test:tauri && npm run build && npm run test:installer && npm run check:windows:binaries && npm run hash:installers && npm run audit:backend && npm run audit:tauri",
     "test:installer": "node --test scripts/tests/installer-runtime.test.mjs",
     "check:windows:binaries": "node scripts/verify-windows-binaries.mjs",
-    "build:sidecar:debug": "cargo build --locked --manifest-path backend-rs/Cargo.toml && npm run prepare:sidecar:debug",
+    "build:sidecar:debug": "cargo build --locked --manifest-path backend-rs/Cargo.toml --target-dir backend-rs/target && npm run prepare:sidecar:debug",
     "build:sidecar:release": "node scripts/build-sidecar.mjs",
     "prepare:sidecar:release": "node scripts/prepare-sidecar.mjs release",
     "prepare:sidecar:debug": "node scripts/prepare-sidecar.mjs debug",

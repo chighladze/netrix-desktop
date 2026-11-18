@@ -47,6 +47,18 @@ impl Drop for Job {
         self.task.abort();
     }
 }
+impl Job {
+    async fn stop(mut self) {
+        self.stop.cancel();
+        if tokio::time::timeout(Duration::from_secs(3), &mut self.task)
+            .await
+            .is_err()
+        {
+            self.task.abort();
+            let _ = (&mut self.task).await;
+        }
+    }
+}
 pub struct TunnelManager {
     jobs: Mutex<HashMap<String, Job>>,
     slots: Arc<Semaphore>,
@@ -97,19 +109,18 @@ impl TunnelManager {
     }
     pub async fn stop(&self, id: &str) -> bool {
         let job = self.jobs.lock().await.remove(id);
-        if let Some(mut job) = job {
-            job.stop.cancel();
-            if tokio::time::timeout(Duration::from_secs(3), &mut job.task)
-                .await
-                .is_err()
-            {
-                job.task.abort();
-                let _ = (&mut job.task).await;
-            }
+        if let Some(job) = job {
+            job.stop().await;
             true
         } else {
             false
         }
+    }
+
+    pub(crate) async fn shutdown(&self) {
+        self.slots.close();
+        let jobs = std::mem::take(&mut *self.jobs.lock().await);
+        futures::future::join_all(jobs.into_values().map(Job::stop)).await;
     }
     pub async fn start(
         &self,

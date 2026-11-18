@@ -1,10 +1,11 @@
 //! Isolated SFTP connection leases, bounded reuse and end-to-end deadlines.
 use super::*;
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Weak;
 use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio::time::{timeout, Instant};
-use tokio_util::sync::CancellationToken;
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::ssh::sftp_transfers::{Transfer, TransferRegistry};
 
@@ -13,18 +14,21 @@ const IDLE_TTL: Duration = Duration::from_secs(60);
 
 type Wire = russh::ChannelStream<client::Msg>;
 
-struct DisconnectOnDrop(Option<client::Handle<SftpProbeHandler>>);
+struct DisconnectOnDrop(Option<client::Handle<SftpProbeHandler>>, TaskTracker);
 impl Drop for DisconnectOnDrop {
     fn drop(&mut self) {
         if let Some(handle) = self.0.take() {
             if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-                runtime.spawn(async move {
-                    let _ = timeout(
-                        Duration::from_secs(2),
-                        handle.disconnect(russh::Disconnect::ByApplication, "SFTP closed", ""),
-                    )
-                    .await;
-                });
+                self.1.spawn_on(
+                    async move {
+                        let _ = timeout(
+                            Duration::from_secs(2),
+                            handle.disconnect(russh::Disconnect::ByApplication, "SFTP closed", ""),
+                        )
+                        .await;
+                    },
+                    &runtime,
+                );
             }
         }
     }
@@ -75,6 +79,8 @@ struct Pool {
     state: Mutex<PoolState>,
     slots: Arc<Semaphore>,
     nonce: [u8; 32],
+    stop: CancellationToken,
+    workers: TaskTracker,
 }
 
 #[derive(Clone)]
@@ -111,7 +117,7 @@ impl Lease {
         }
         {
             let mut state = self.pool.state.lock().await;
-            if self.scope.is_cancelled() {
+            if self.scope.is_cancelled() || self.pool.stop.is_cancelled() {
                 return;
             }
             let idle = &mut state.idle;
@@ -148,22 +154,27 @@ impl SftpManager {
             state: Mutex::new(PoolState::default()),
             slots: Arc::new(Semaphore::new(4)),
             nonce: rand::random(),
+            stop: CancellationToken::new(),
+            workers: TaskTracker::new(),
         });
         let weak = Arc::downgrade(&pool);
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-            runtime.spawn(async move {
-                loop {
-                    tokio::time::sleep(Duration::from_secs(15)).await;
-                    let Some(pool) = weak.upgrade() else {
-                        break;
-                    };
-                    let mut state = pool.state.lock().await;
-                    state
-                        .idle
-                        .retain(|_, entry| entry.since.elapsed() < IDLE_TTL);
-                    state.scopes.retain(|_, scope| scope.strong_count() > 0);
-                }
-            });
+            pool.workers.spawn_on(
+                pool.stop.clone().run_until_cancelled_owned(async move {
+                    loop {
+                        tokio::time::sleep(Duration::from_secs(15)).await;
+                        let Some(pool) = weak.upgrade() else {
+                            break;
+                        };
+                        let mut state = pool.state.lock().await;
+                        state
+                            .idle
+                            .retain(|_, entry| entry.since.elapsed() < IDLE_TTL);
+                        state.scopes.retain(|_, scope| scope.strong_count() > 0);
+                    }
+                }),
+                &runtime,
+            );
         }
         Self {
             known_hosts,
@@ -286,7 +297,7 @@ impl SftpManager {
                 return Err(SftpProbeError::Connect(error.to_string()));
             }
         };
-        let mut handle = DisconnectOnDrop(Some(handle));
+        let mut handle = DisconnectOnDrop(Some(handle), self.pool.workers.clone());
         let Some(ssh) = handle.0.as_mut() else {
             return Err(SftpProbeError::Connect("SSH connection closed".into()));
         };
@@ -344,6 +355,26 @@ impl SftpManager {
         }
         state.scopes.clear();
         state.idle.clear();
+    }
+
+    pub(crate) fn spawn_transfer<F>(&self, work: F) -> tokio::task::JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.pool.workers.spawn(work)
+    }
+
+    pub(crate) async fn stop_operations(&self) {
+        self.transfers.shutdown();
+        self.pool.slots.close();
+        self.pool.stop.cancel();
+        self.clear_idle().await;
+    }
+
+    pub(crate) async fn wait_for_workers(&self) {
+        self.pool.workers.close();
+        self.pool.workers.wait().await;
     }
 
     pub async fn disconnect_host(&self, host_id: i64) {

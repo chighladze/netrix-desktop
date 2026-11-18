@@ -48,7 +48,11 @@ vi.mock("./components/DetachedTerminalFrame", () => ({ default: ({ children }: {
 vi.mock("./components/TerminalTabsBar", () => ({ default: () => null }));
 vi.mock("./components/TerminalDockTarget", () => ({ default: () => null }));
 vi.mock("./components/QuickActionBar", () => ({ default: () => null }));
-vi.mock("./components/HelpCenterModal", () => ({ default: () => null, HELP_INTRO_COMPLETED_KEY: "test-welcome-complete" }));
+vi.mock("./components/HelpCenterModal", () => ({
+  default: ({ isOpen, onReportProblem }: { isOpen: boolean; onReportProblem: () => void }) => isOpen
+    ? <button onClick={onReportProblem}>Report problem</button> : null,
+  HELP_INTRO_COMPLETED_KEY: "test-welcome-complete",
+}));
 
 const host: SavedHostDto = {
   id: 1, revision: 0, name: "Router", hostname: "example.test", port: 22,
@@ -65,6 +69,7 @@ describe("main terminal navigation", () => {
     settings.security.vaultRememberPassword = false;
     useAppStore.setState({
       settings, activeView: "hosts", activeTabId: "tab-1",
+      appSecurity: { locked: false, revision: 1, error: null },
       terminalTabs: [{ id: "tab-1", host, isConnected: true, sessionId: 101 }],
       terminalLayout: "single", terminalGroups: [], terminalInstances: {}, terminalSockets: {},
       terminalTransfers: {}, tabStatuses: { "tab-1": "connected" }, sessionIds: { "tab-1": 101 },
@@ -76,6 +81,19 @@ describe("main terminal navigation", () => {
       refreshVaultStatus: vi.fn().mockResolvedValue({ initialized: false, unlocked: false }),
       refreshStoredVaultPasswordState: vi.fn().mockResolvedValue(undefined),
     });
+  });
+
+  it("closes a report draft when the workspace becomes blocked and does not restore it on unlock", async () => {
+    const view = render(<App />);
+    await waitFor(() => expect(view.container.querySelector("[data-workspace-ready=true]")).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Help & Getting Started" }));
+    fireEvent.click(screen.getByRole("button", { name: "Report problem" }));
+    expect(await screen.findByRole("dialog", { name: "Report problem" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("What happened?"), { target: { value: "Unsubmitted draft" } });
+    act(() => useAppStore.setState({ appSecurity: { locked: false, revision: 2, error: "Backend unavailable" } }));
+    expect(screen.queryByRole("dialog", { name: "Report problem" })).toBeNull();
+    act(() => useAppStore.setState({ appSecurity: { locked: false, revision: 3, error: null } }));
+    expect(screen.queryByRole("dialog", { name: "Report problem" })).toBeNull();
   });
 
   it.each(["single", "columns"] as const)("retains the %s workspace and its local state across sidebar navigation", async (layout) => {

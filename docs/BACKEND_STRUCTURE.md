@@ -15,6 +15,7 @@ The backend is a Rust 2021 Axum sidecar in `backend-rs/`. It is built as both a 
 ## Entry Points
 
 - `src/main.rs`: runtime binary. Reads token from stdin, initializes logging, encrypted-storage startup gate, CORS and the localhost server. Database/session services are initialized only after master-password entry.
+- `src/parent_channel.rs` reads the managed startup frame, cancels on EOF and runs a native-thread watchdog for blocked shutdown. `startup.rs` coordinates the opening guard, monitors, transfer workers, terminal sessions and database pool during shutdown.
 - `src/startup_diagnostics.rs`: binary-local startup failure classification. Fatal
   settings, workspace inspection and listener-binding errors emit one bounded
   `NETRIX_STARTUP_FAILURE:` JSON line with an allowlisted `code` and optional

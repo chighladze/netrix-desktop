@@ -27,6 +27,8 @@ import HelpCenterModal, {
   HELP_INTRO_COMPLETED_KEY,
   type HelpCenterMode,
 } from "./components/HelpCenterModal";
+import ReportProblemModal from "./features/feedback/ReportProblemModal";
+import ReportProblemButton from "./features/feedback/ReportProblemButton";
 
 import HostDashboard from "./components/HostDashboard";
 import NavRail from "./components/NavRail";
@@ -178,6 +180,7 @@ const BackendStartupScreen: React.FC<{
               ? status.message || "The local backend could not be started."
               : "Preparing the local services required by this window…"}
           </p>
+          {failed && <ReportProblemButton serviceFailure className="workspace-lock-secondary" />}
         </div>
       </main>
     </div>
@@ -417,6 +420,7 @@ const App: React.FC = () => {
   const [terminalViewOpened, setTerminalViewOpened] = useState(false);
   const [vaultUnlockDialogOpen, setVaultUnlockDialogOpen] = useState(false);
   const [helpCenterOpen, setHelpCenterOpen] = useState(false);
+  const [problemReportOpen, setProblemReportOpen] = useState(false);
   const [helpCenterMode, setHelpCenterMode] = useState<HelpCenterMode>("guide");
   const mainBootstrapStartedRef = useRef(false);
   const startupWindowShownRef = useRef(false);
@@ -570,6 +574,8 @@ const App: React.FC = () => {
 
 
   const isLocked = useAppStore((state) => state.appSecurity.locked === true);
+  const reportBlocked = useAppStore((state) => state.appSecurity.locked !== false || Boolean(state.appSecurity.error));
+  useEffect(() => { if (reportBlocked) setProblemReportOpen(false); }, [reportBlocked]);
 
   // Apply window settings (always on top)
   useEffect(() => {
@@ -612,28 +618,6 @@ const App: React.FC = () => {
       unlisten?.();
     };
   }, [isMainWindow, settings.window.rememberWindowPosition]);
-
-  useEffect(() => {
-    if (!isMainWindow) return;
-
-    const appWindow = getCurrentWindow();
-    let disposed = false;
-    let unlisten: (() => void) | null = null;
-
-    void appWindow.onCloseRequested((event) => {
-      event.preventDefault();
-
-      void requestApplicationClose(quitApplication);
-    }).then((stop) => {
-      if (disposed) stop();
-      else unlisten = stop;
-    });
-
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, [isMainWindow, quitApplication]);
 
   // Restore the main-window position before making the initially hidden window visible.
   useEffect(() => {
@@ -1224,6 +1208,7 @@ const App: React.FC = () => {
         vaultInitialized={vaultInitialized}
         vaultUnlocked={isVaultUnlocked}
         onClose={closeHelpCenter}
+        onReportProblem={() => { closeHelpCenter(); setProblemReportOpen(true); }}
         onNavigate={(view) => {
           setActiveView(view);
           closeHelpCenter();
@@ -1241,6 +1226,7 @@ const App: React.FC = () => {
         }}
       />
       <ToastContainer />
+      {problemReportOpen && !reportBlocked && <ReportProblemModal onClose={() => setProblemReportOpen(false)} />}
       <ConfirmModal />
     </div>
   );

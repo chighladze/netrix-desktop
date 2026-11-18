@@ -1,18 +1,22 @@
+use std::future::IntoFuture;
 /// Netrix Backend — Rust entry point.
 ///
 /// Starts the Axum backend:
 /// - Reads API token from stdin
 /// - Initialises database, vault, session manager
 /// - Mounts all routers on an Axum HTTP server
-/// - Monitors the parent Tauri process and exits when it dies
+/// - Uses the private parent pipe for app shutdown and parent-death detection
 use std::io::BufRead;
+use std::time::Duration;
 
 use netrix_backend::{config, database_encryption, startup};
+use tokio_util::sync::CancellationToken;
 use tower::Layer;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
+mod parent_channel;
 mod startup_diagnostics;
 use startup_diagnostics::{report, Stage};
 
@@ -50,11 +54,22 @@ fn is_allowed_cors_origin(origin: &axum::http::HeaderValue) -> bool {
     matches!(host, "localhost" | "127.0.0.1" | "tauri.localhost")
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let result = runtime.block_on(run());
+    // A blocking workspace migration/KDF cannot be aborted by Tokio. Normal
+    // shutdown awaits it; the deadline must also bound runtime teardown.
+    runtime.shutdown_timeout(Duration::from_millis(250));
+    result
+}
+
+async fn run() -> anyhow::Result<()> {
+    let mode = std::env::args().nth(1);
     // Read-only release evidence from the exact linked native library. This
     // command intentionally runs before SETTINGS, logging or profile creation.
-    if std::env::args().nth(1).as_deref() == Some("--storage-build-info") {
+    if mode.as_deref() == Some("--storage-build-info") {
         use sha2::Digest;
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await?;
         let (sqlite_version, sqlite_source_id): (String, String) =
@@ -75,6 +90,37 @@ async fn main() -> anyhow::Result<()> {
         pool.close().await;
         return Ok(());
     }
+
+    let managed = mode.as_deref() == Some("--managed");
+    let stop = CancellationToken::new();
+    let (port, api_token) = if managed {
+        let Some(token) = parent_channel::receive_token(stop.clone()).await? else {
+            return Ok(());
+        };
+        (0, token)
+    } else {
+        let port = mode.and_then(|port| port.parse().ok()).unwrap_or(8000);
+        let mut token = String::new();
+        std::io::stdin().lock().read_line(&mut token)?;
+        let token = token.trim().to_owned();
+        let token = if token.is_empty() {
+            hex::encode(rand::random::<[u8; 32]>())
+        } else {
+            token
+        };
+        (port, token)
+    };
+    if stop.is_cancelled() {
+        return Ok(());
+    }
+
+    let signal_stop = stop.clone();
+    tokio::spawn(async move {
+        match tokio::signal::ctrl_c().await {
+            Ok(()) => signal_stop.cancel(),
+            Err(error) => warn!(%error, "Could not register Ctrl+C handler"),
+        }
+    });
     config::SETTINGS
         .initialize()
         .map_err(|error| report(Stage::DataDirectory, error))?;
@@ -101,38 +147,23 @@ async fn main() -> anyhow::Result<()> {
         warn!("SSH Security: host key verification is DISABLED (ssh_known_hosts_policy=insecure).");
     }
 
-    // ── Parse CLI args ──────────────────────────────────────────────
-    let args: Vec<String> = std::env::args().collect();
-    let port: u16 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(8000);
-
-    let parent_pid: Option<u32> = args.get(2).and_then(|s| s.parse().ok());
-
-    // ── Read API token from stdin ───────────────────────────────────
-    let api_token = {
-        let stdin = std::io::stdin();
-        let mut line = String::new();
-        match stdin.lock().read_line(&mut line) {
-            Ok(_) => line.trim().to_string(),
-            Err(e) => {
-                error!("Failed to read API token from stdin: {e}");
-                String::new()
-            }
-        }
-    };
-
-    let api_token = if api_token.is_empty() {
-        let token = hex::encode(rand::random::<[u8; 32]>());
-        warn!("API Security: No token provided by parent. Generated ephemeral token for this run.");
-        token
-    } else {
-        api_token
-    };
-
     // No SQLite pool or workspace routes exist until the master password opens storage.
-    let storage = database_encryption::Storage::inspect(config::SETTINGS.app_data_dir.clone())
-        .await
-        .map_err(|error| report(Stage::Workspace, error))?;
-    let app = startup::router(storage, api_token).layer(
+    let directory = config::SETTINGS.app_data_dir.clone();
+    let storage = if managed {
+        database_encryption::Storage::inspect_on_startup(directory, &stop).await
+    } else {
+        database_encryption::Storage::inspect(directory)
+            .await
+            .map(Some)
+    };
+    let Some(storage) = storage.map_err(|error| report(Stage::Workspace, error))? else {
+        return Ok(());
+    };
+    if stop.is_cancelled() {
+        return Ok(());
+    }
+    let (app, workspace) = startup::router(storage, api_token, stop.clone());
+    let app = app.layer(
         CorsLayer::new()
             .allow_origin(AllowOrigin::predicate(|origin, _| {
                 let allowed = is_allowed_cors_origin(origin);
@@ -172,75 +203,51 @@ async fn main() -> anyhow::Result<()> {
     // Normalize trailing slashes BEFORE routing (must wrap outside the Router).
     let app = tower_http::normalize_path::NormalizePathLayer::trim_trailing_slash().layer(app);
 
-    // ── Parent Process Monitor ──────────────────────────────────────
-    spawn_parent_monitor(parent_pid);
-
     // ── Serve ───────────────────────────────────────────────────────
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    info!("Starting Netrix Backend on {addr}");
-    info!("API Security: Token authentication ENABLED.");
-
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .map_err(|error| report(Stage::Listener, error))?;
+    let address = listener.local_addr()?;
+    info!(%address, "Netrix backend listening with token authentication");
+    if managed {
+        use std::io::Write;
+        let mut stdout = std::io::stdout().lock();
+        writeln!(stdout, "NETRIX_LISTENING:{}", address.port())?;
+        stdout.flush()?;
+    }
     // NormalizePath wraps the Router; Shared turns Service into MakeService for axum::serve.
-    axum::serve(listener, tower::make::Shared::new(app))
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    let mut server = tokio::spawn(
+        axum::serve(listener, tower::make::Shared::new(app))
+            .with_graceful_shutdown(stop.clone().cancelled_owned())
+            .into_future(),
+    );
+    tokio::select! {
+        biased;
+        _ = stop.cancelled() => {},
+        result = &mut server => return result?.map_err(Into::into),
+    }
+
+    info!("Shutdown requested");
+    let drained = tokio::time::timeout(parent_channel::SHUTDOWN_TIMEOUT, async {
+        // First signal workers that may otherwise keep an HTTP response open.
+        // Wait for the listener to finish before joining tasks created by requests.
+        let (result, ()) = tokio::join!(&mut server, workspace.stop_operations());
+        workspace.close().await;
+        result?
+    })
+    .await;
+    match drained {
+        Ok(result) => result?,
+        Err(_) => {
+            server.abort();
+            error!("Shutdown timed out; some operations did not finish");
+            anyhow::bail!("Backend shutdown timed out");
+        }
+    }
 
     info!("Shutdown complete.");
     Ok(())
-}
-
-/// Wait for Ctrl-C as a shutdown signal.
-async fn shutdown_signal() {
-    let _ = tokio::signal::ctrl_c().await;
-    info!("Received shutdown signal.");
-}
-
-/// Monitor the parent Tauri process and exit when it dies.
-fn spawn_parent_monitor(pid: Option<u32>) {
-    let pid = match pid {
-        Some(p) if p > 1 => p,
-        _ => return,
-    };
-
-    std::thread::spawn(move || {
-        #[cfg(windows)]
-        {
-            use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
-            const SYNCHRONIZE: u32 = 0x00100000;
-            use windows_sys::Win32::System::Threading::{OpenProcess, WaitForSingleObject};
-
-            unsafe {
-                let handle = OpenProcess(SYNCHRONIZE, 0, pid);
-                if handle.is_null() {
-                    info!("Cannot open parent process {pid}. Exiting.");
-                    std::process::exit(0);
-                }
-                loop {
-                    let result = WaitForSingleObject(handle, 2000);
-                    if result == WAIT_OBJECT_0 {
-                        info!("Tauri process {pid} exited. Shutting down backend…");
-                        std::process::exit(0);
-                    }
-                }
-            }
-        }
-
-        #[cfg(not(windows))]
-        {
-            loop {
-                std::thread::sleep(std::time::Duration::from_secs(2));
-                // On non-Windows, try /proc/PID or open() to check.
-                let proc_path = format!("/proc/{pid}");
-                if !std::path::Path::new(&proc_path).exists() {
-                    info!("Tauri process {pid} exited. Shutting down backend…");
-                    std::process::exit(0);
-                }
-            }
-        }
-    });
 }
 
 #[cfg(test)]

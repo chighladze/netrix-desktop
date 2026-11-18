@@ -74,6 +74,7 @@ kitty-master/
 
 # ── Netrix Agent / Audit ──
 .agent/
+/graphify-out/
 AUDIT.md
 AUDIT_*.md
 release-artifacts/

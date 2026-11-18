@@ -3,20 +3,19 @@
 A free, MIT-licensed desktop workspace for SSH, Telnet, Serial and SFTP.
 Keep connections, terminals, files, snippets and network maps on your computer.
 
-[Website](https://netrix-console.com) · [Download for Windows](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.8) · [Build from source](docs/build_instructions.md) · [Customize Netrix](docs/CUSTOMIZATION.md) · [Report a bug](https://github.com/chighladze/netrix-releases/issues/new?template=bug-report.yml)
+[Website](https://netrix-console.com) · [Download for Windows](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.9) · [Build from source](docs/build_instructions.md) · [Customize Netrix](docs/CUSTOMIZATION.md) · [Report a bug](https://github.com/chighladze/netrix-releases/issues/new?template=bug-report.yml)
 
 ![Windows checks](https://github.com/chighladze/netrix-desktop/actions/workflows/windows.yml/badge.svg)
 
 ## Install and run
 
-1. Open the [Windows release](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.8).
-2. Download **Netrix_0.3.0-beta.8_x64-setup.exe** from Assets, run the installer, then open Netrix.
+1. Open the [Windows release](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.9).
+2. Download **Netrix_0.3.0-beta.9_x64-setup.exe** from Assets, run the installer, then open Netrix.
 3. Create a local workspace and keep its master password safe. Add a host you own or are authorized to manage.
 
-The published beta is unsigned. Windows protection may block it; keep protection
-enabled and report the exact message if installation fails. Installation on clean
-Windows without Visual C++/WebView2 has not been manually verified for this beta.
-See the release notes for checksums, recovery guidance and the tested scope.
+The installer is unsigned. A standard user installed beta.9 offline on a fresh
+Windows 10 Enterprise LTSC 2021 x64 VM. Setup supplied the missing WebView2 runtime.
+The release notes include the checksum and the results of upgrade and crash-restart tests.
 
 **Source code ZIP/TAR files are for developers.** They contain this repository's
 application code and must be built. To install the ready-made app, choose the EXE
@@ -73,10 +72,9 @@ publish an official release or provide a publisher signature.
 
 ## Version and license
 
-The initial public snapshot corresponds to **0.3.0-beta.8**. Application source,
-lockfiles and assets match that released source; developer documentation, CI and its validation tests
-are adapted for this public repository. Earlier private Git history and internal
-release reports are not included. See [SOURCE_SNAPSHOT.md](SOURCE_SNAPSHOT.md).
+The public tag `v0.3.0-beta.9` contains the application source, assets and
+lockfiles used to build the Windows installer. The public build guides and CI
+live alongside them. [Source and installer provenance](SOURCE_SNAPSHOT.md).
 
 Netrix is licensed under [MIT](LICENSE). You may use, modify and redistribute it
 under that license, retaining its notice. Third-party dependencies retain their

@@ -8,6 +8,7 @@ import { fetchJsonOrThrow, getApiBase, getBackendStatus, waitForBackendReady, ty
 import BackendFailurePanel from "./BackendFailurePanel";
 import TitleBar from "../../components/TitleBar";
 import { useAppStore } from "../../state/store";
+import { requestApplicationClose } from "../../terminal/appClose";
 import { notifySecurityChanged, securityRequest, SECURITY_CHANGED_EVENT, type SecuritySnapshot } from "./api";
 import { MIN_VAULT_MASTER_PASSWORD_LENGTH } from "../vault/password";
 import "./security.css";
@@ -41,11 +42,49 @@ export default function AppSecurityBoundary({ children }: { children: React.Reac
   const passwordLongEnough = Array.from(password).length >= MIN_VAULT_MASTER_PASSWORD_LENGTH;
   const passwordsMatch = Boolean(confirmation) && password === confirmation;
 
+  const quit = useCallback(async () => {
+    try {
+      await invoke("quit_app");
+    } catch {
+      const { appSecurity, addToast } = useAppStore.getState();
+      if (appSecurity.locked !== false || appSecurity.error) setError("Unable to close Netrix");
+      else addToast("Could not quit Netrix. Your sessions are still open.", "error");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isMain) return;
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    // This boundary exists before the first unlock and after a backend failure.
+    void getCurrentWindow().onCloseRequested((event) => {
+      event.preventDefault();
+      const { appSecurity } = useAppStore.getState();
+      if (appSecurity.locked !== false || appSecurity.error) setConfirmExit(true);
+      else void requestApplicationClose(quit);
+    }).then((unlisten) => {
+      if (disposed) unlisten();
+      else stop = unlisten;
+    }).catch(() => undefined);
+    return () => { disposed = true; stop?.(); };
+  }, [isMain, quit]);
+
+  const closeFromLockScreen = () => {
+    if (isMain) {
+      setConfirmExit(true);
+    } else if (backendFailure) {
+      const window = getCurrentWindow();
+      const close = window.label.startsWith("detached-") ? invoke("close_terminal_window") : window.close();
+      void close.catch(() => setError("Unable to close this window"));
+    } else {
+      setError("Unlock Netrix before closing this window or ending its sessions.");
+    }
+  };
+
   const apply = useCallback((snapshot: SecuritySnapshot) => {
     if (!alive.current || backendUnavailable.current) return;
     const previous = useAppStore.getState().appSecurity;
     if (snapshot.revision < previous.revision) return;
-    setBackendFailure(null);
     useAppStore.setState({
       appSecurity: { locked: snapshot.locked, revision: snapshot.revision, error: null,
         databaseMode: snapshot.database_mode, databaseEncrypted: snapshot.database_encrypted,
@@ -226,7 +265,7 @@ export default function AppSecurityBoundary({ children }: { children: React.Reac
     </div>
     <Dialog open={blocked} onClose={() => {}} initialFocus={input} className="relative z-[2147483640]">
       <DialogPanel data-netrix-lock-screen className="fixed inset-0 flex flex-col bg-background-midnight">
-        <TitleBar title={backendFailure ? "Netrix · Service unavailable" : "Netrix · Locked"} showSettings={false} onClose={() => isMain ? setConfirmExit(true) : setError("Unlock Netrix before closing this window or ending its sessions.")} />
+        <TitleBar title={backendFailure ? "Netrix · Service unavailable" : "Netrix · Locked"} showSettings={false} onClose={closeFromLockScreen} />
         <div className="workspace-lock-stage">
           <div className="workspace-lock-card">
             <header className="workspace-lock-brand">
@@ -294,7 +333,7 @@ export default function AppSecurityBoundary({ children }: { children: React.Reac
                 <p>Exit Netrix? Active connections will close.</p>
                 <div>
                   <button type="button" className="workspace-lock-secondary" onClick={() => setConfirmExit(false)}>Stay in Netrix</button>
-                  <button type="button" className="workspace-lock-secondary" data-tone="danger" onClick={() => { void invoke("quit_app").catch(() => setError("Unable to close Netrix")); }}>Exit Netrix</button>
+                  <button type="button" className="workspace-lock-secondary" data-tone="danger" onClick={() => { void quit(); }}>Exit Netrix</button>
                 </div>
               </div>}
             </div>

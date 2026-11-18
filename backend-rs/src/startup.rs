@@ -17,6 +17,7 @@ use serde_json::json;
 use std::sync::{Arc, OnceLock};
 use subtle::ConstantTimeEq;
 use tokio::sync::Mutex;
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tower::ServiceExt;
 use zeroize::Zeroizing;
 
@@ -26,28 +27,27 @@ pub struct Startup {
     active: OnceLock<ActiveWorkspace>,
     opening: Arc<Mutex<()>>,
     limiter: auth::VaultUnlockLimiter,
+    stop: CancellationToken,
 }
 
 struct ActiveWorkspace {
     router: Router,
-    monitor: tokio::task::AbortHandle,
-    // Tests must await SQLx worker termination before the process tears down
-    // SQLCipher. Dropping a pool only schedules connection cleanup.
-    #[cfg(test)]
-    db: crate::db::Db,
+    state: AppState,
+    monitors: TaskTracker,
 }
 
-pub fn router(storage: Arc<Storage>, token: String) -> Router {
-    router_with_state(storage, token).0
-}
-
-fn router_with_state(storage: Arc<Storage>, token: String) -> (Router, Arc<Startup>) {
+pub fn router(
+    storage: Arc<Storage>,
+    token: String,
+    stop: CancellationToken,
+) -> (Router, Arc<Startup>) {
     let startup = Arc::new(Startup {
         storage,
         token,
         active: OnceLock::new(),
         opening: Arc::new(Mutex::new(())),
         limiter: auth::VaultUnlockLimiter::new(),
+        stop,
     });
     (
         Router::new().fallback(dispatch).with_state(startup.clone()),
@@ -56,6 +56,9 @@ fn router_with_state(storage: Arc<Storage>, token: String) -> (Router, Arc<Start
 }
 
 async fn dispatch(State(startup): State<Arc<Startup>>, request: Request) -> Response {
+    if startup.stop.is_cancelled() {
+        return shutting_down();
+    }
     if let Some(active) = startup.active.get() {
         return match active.router.clone().oneshot(request).await {
             Ok(response) => response,
@@ -121,7 +124,44 @@ async fn dispatch(State(startup): State<Arc<Startup>>, request: Request) -> Resp
     }
 }
 
+fn shutting_down() -> Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(json!({"detail":"Netrix is shutting down"})),
+    )
+        .into_response()
+}
+
 impl Startup {
+    /// Signal work that can otherwise keep HTTP connections open (uploads and
+    /// downloads), and stop forwarding even while old HTTP requests drain.
+    pub async fn stop_operations(&self) {
+        // If unlock is already publishing a database, let it reach a verified
+        // state before inspecting the workspace or tearing down its resources.
+        let _opening = self.opening.lock().await;
+        if let Some(active) = self.active.get() {
+            let state = &active.state;
+            tokio::join!(
+                state.sftp.stop_operations(),
+                state.sessions.tunnels().shutdown()
+            );
+        }
+    }
+
+    /// Called after Axum drains. No new request can register a worker now.
+    pub async fn close(&self) {
+        if let Some(active) = self.active.get() {
+            let state = &active.state;
+            tokio::join!(
+                active.monitors.wait(),
+                state.sessions.shutdown(),
+                state.sftp.wait_for_workers()
+            );
+            vault::lock(&state.vault).await;
+            state.db.close().await;
+        }
+    }
+
     fn snapshot(&self) -> Json<serde_json::Value> {
         Json(json!({"locked":true,"revision":0,"vault_unlocked":false,
             "vault_initialized":self.storage.mode != StartupMode::Setup,
@@ -131,6 +171,9 @@ impl Startup {
     }
 
     async fn open(&self, password: &str) -> Response {
+        if self.stop.is_cancelled() {
+            return shutting_down();
+        }
         if self.active.get().is_some() {
             return AppError::Conflict("Workspace is already open; refresh and try again".into())
                 .into_response();
@@ -159,8 +202,7 @@ impl Startup {
         };
         self.limiter.record_success().await;
         let known_hosts = ssh::known_hosts::KnownHostsStore::new();
-        let sessions = ssh::SessionManager::with_known_hosts(known_hosts.clone());
-        Arc::new(sessions.clone()).start_monitor();
+        let sessions = ssh::SessionManager::with_shutdown(known_hosts.clone(), self.stop.clone());
         let state = AppState {
             database_encryption: Some(encryption),
             security: security::AppSecurity::default(),
@@ -173,18 +215,27 @@ impl Startup {
             vault_unlock_limiter: self.limiter.clone(),
         };
         state.security.unlock_after_verification().await;
-        let monitor = security::start_monitor(state.clone()).abort_handle();
+        let monitors = TaskTracker::new();
+        monitors.spawn(
+            self.stop
+                .clone()
+                .run_until_cancelled_owned(security::monitor(state.clone())),
+        );
+        monitors.spawn(
+            self.stop
+                .clone()
+                .run_until_cancelled_owned(state.sessions.clone().monitor()),
+        );
+        monitors.close();
         if self
             .active
             .set(ActiveWorkspace {
-                #[cfg(test)]
-                db: state.db.clone(),
-                router: crate::application::router(state),
-                monitor: monitor.clone(),
+                router: crate::application::router(state.clone()),
+                state,
+                monitors,
             })
             .is_err()
         {
-            monitor.abort();
             return AppError::Internal("Workspace activation was duplicated".into())
                 .into_response();
         }
@@ -198,9 +249,7 @@ impl Startup {
 
 impl Drop for Startup {
     fn drop(&mut self) {
-        if let Some(active) = self.active.get() {
-            active.monitor.abort();
-        }
+        self.stop.cancel();
     }
 }
 
@@ -212,21 +261,11 @@ mod tests {
     const PASSWORD: &str = "isolated-startup-password";
 
     async fn close_workspace(app: Router, startup: Arc<Startup>) {
-        let pool = startup.active.get().unwrap().db.clone();
+        let pool = startup.active.get().unwrap().state.db.clone();
         drop(app);
-        drop(startup); // abort the security monitor before closing its pool
-
-        // Queries return connections on background tasks. Own every connection
-        // before closing the pool so those tasks cannot race its idle-queue drain.
-        // Each explicit close awaits SQLite's worker shutdown and file release.
-        let mut connections = Vec::new();
-        for _ in 0..pool.options().get_max_connections() {
-            connections.push(pool.acquire().await.unwrap());
-        }
-        for connection in connections {
-            connection.close().await.unwrap();
-        }
-        pool.close().await;
+        startup.stop.cancel();
+        startup.stop_operations().await;
+        startup.close().await;
         assert!(pool.is_closed());
     }
 
@@ -262,11 +301,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn shutdown_rejects_unlock_and_http_work_before_opening_the_database() {
+        let dir =
+            std::env::temp_dir().join(format!("netrix-shutdown-test-{}", uuid::Uuid::new_v4()));
+        let storage = Storage::inspect(dir.clone()).await.unwrap();
+        let stop = CancellationToken::new();
+        let (app, workspace) = router(storage, TOKEN.into(), stop.clone());
+        stop.cancel();
+        stop.cancel();
+        workspace.stop_operations().await;
+        let response = request(
+            &app,
+            "POST",
+            "/security/unlock",
+            json!({"master_password": PASSWORD}),
+        )
+        .await;
+        assert_eq!(response.0, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            request(&app, "GET", "/health", json!(null)).await.0,
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert!(workspace.active.get().is_none());
+        assert!(!dir.join("database.db").exists());
+        workspace.close().await;
+        drop(app);
+        drop(workspace);
+        assert_eq!(dir.parent(), Some(std::env::temp_dir().as_path()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
     async fn password_gate_rotation_reset_and_restart_preserve_the_workspace() {
         let dir =
             std::env::temp_dir().join(format!("netrix-startup-test-{}", uuid::Uuid::new_v4()));
         let storage = Storage::inspect(dir.clone()).await.unwrap();
-        let (app, startup) = router_with_state(storage, TOKEN.into());
+        let (app, startup) = router(storage, TOKEN.into(), CancellationToken::new());
         let response = app
             .clone()
             .oneshot(
@@ -361,7 +431,7 @@ mod tests {
         );
         close_workspace(app, startup).await;
         let storage = Storage::inspect(dir.clone()).await.unwrap();
-        let (app, startup) = router_with_state(storage, TOKEN.into());
+        let (app, startup) = router(storage, TOKEN.into(), CancellationToken::new());
         assert_eq!(
             request(&app, "GET", "/hosts", json!(null)).await.0,
             StatusCode::LOCKED

@@ -6,7 +6,8 @@ Netrix is a local desktop app split into three cooperating parts: Tauri shell, R
 
 ```mermaid
 flowchart LR
-  Tauri[Tauri shell\nsrc-tauri] -->|starts sidecar, writes token to stdin| Backend[Axum backend\nbackend-rs]
+  Tauri[Tauri shell\nsrc-tauri] -->|starts with token on stdin, closes pipe to stop| Backend[Axum backend\nbackend-rs]
+  Backend -->|bound port on private stdout| Tauri
   Frontend[React frontend\nfrontend] -->|invoke get_backend_port/get_api_token| Tauri
   Frontend -->|HTTP X-API-Token| Backend
   Frontend -->|WebSocket subprotocol token| Backend
@@ -23,13 +24,33 @@ Netrix runs as a local desktop application with three components:
 2. React frontend (`frontend`) written in TypeScript.
 3. Rust backend sidecar (`backend-rs`) written with Axum and Tokio.
 
-The Tauri shell starts the backend sidecar on a random localhost port and generates a per-session API token. The frontend gets the active port and token via Tauri commands and communicates directly with the backend over HTTP and WebSocket.
+The separate Rust process lets the shell observe a backend exit independently of the WebView and supervise the executable. It adds a process protocol, process cleanup, version matching and installer payload verification. Module boundaries and independent tests are also possible within one process. Performance and security depend on the implementation of those boundaries.
+
+The Tauri shell starts the matching sidecar with `--managed` and writes a new, newline-terminated API token to its private stdin. The backend binds to `127.0.0.1:0` and writes `NETRIX_LISTENING:<port>` on private stdout. The frontend gets the verified port and token through Tauri IPC and connects to the backend over HTTP and WebSocket.
 
 ## Tauri Shell
 
-`src-tauri/src/main.rs` finds a free localhost port, generates a UUID API token, starts the backend sidecar, and exposes `get_backend_port`, `get_api_token`, and `get_backend_status` commands. The status contract is `{ status: "starting" | "ready" | "failed", message?: string }`; readiness is reached only after an authenticated `GET /health` returns HTTP 200. In development Tauri launches `backend-rs/target/debug/netrix_backend.exe`; in production it launches the bundled sidecar through `tauri-plugin-shell`.
+`src-tauri/src/backend_process.rs` owns the child and its pipes on a worker thread. In development it launches `backend-rs/target/debug/netrix_backend.exe`. On Windows the NSIS bundle installs `netrix_backend.exe` next to the application, where the release shell resolves it by absolute path. The shell publishes `ready` only after an authenticated `GET /health` returns HTTP 200. It reports process exits through `get_backend_status` in both modes.
 
-On Windows, a Job Object is used to group and terminate the backend with the main app. Tauri resolves `%APPDATA%/com.netrix.app`, migrates non-conflicting entries from the legacy `%APPDATA%/Netrix` directory, and passes the resolved path to the backend through `NETRIX_DATA_DIR`. Production shell logs use the same identifier-based directory.
+Tauri resolves `%APPDATA%/com.netrix.app`, migrates non-conflicting entries from the legacy `%APPDATA%/Netrix` directory, and passes the resolved path to the backend through `NETRIX_DATA_DIR`. Production shell logs use the same identifier-based directory.
+
+## Shutdown and restart
+
+1. The main window completes its existing close confirmation. Tauri defers the first exit request and sends one stop signal by dropping the private stdin writer. Closing a detached terminal or map only closes that window.
+2. On EOF the backend stops listening and rejects new dispatches. It closes terminal WebSockets and their transports, stops tunnel listeners and cancels queued and running transfers. SFTP jobs already committing a rename retain their bounded acknowledgement window. The backend allows in-progress workspace opening and accepted HTTP requests to finish within the same deadline.
+3. After HTTP drains, the backend waits for monitors, terminal cleanup and SFTP workers, clears the vault key and closes the SQLite pool. Process exit releases the workspace lock. A locked startup has no workspace pool to close.
+4. The backend budgets 12 seconds for cooperative cleanup. The shell polls the owned process handle off the UI thread and attempts termination if the child is still alive after 15 seconds. It gives the OS a short window to confirm exit before letting Tauri close. Repeated exit requests share this sequence.
+
+On Windows the shell attaches the child to an unnamed `KILL_ON_JOB_CLOSE` Job Object before delivering the token. A shell crash closes its Job handle and Windows kills the child and its job descendants. If Job setup fails, the shell logs the OS error and the private pipe still closes on parent exit. The backend watches it before opening the profile and has a separate 14-second watchdog from EOF. A forced stop can interrupt transactions and remote acknowledgement. SQLite recovery handles unfinished local transactions on the next open. Release of the OS lock does not require deleting its file.
+
+A managed sidecar that encounters a held workspace lock retries on the same open
+`.database-lock` handle every 100 ms for up to 15 seconds. A relaunch can wait
+through the previous sidecar's 14-second EOF watchdog. The backend reads the
+database and key envelope after obtaining the lock. Parent EOF cancels the wait.
+Continued contention reaches `workspace_busy` with the original OS error.
+Other storage errors are reported immediately. The 20-second shell readiness
+budget and 25-second renderer polling limit leave time for inspection and
+authenticated health after the lock is acquired.
 
 ## Frontend
 

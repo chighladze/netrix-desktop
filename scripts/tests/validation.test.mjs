@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { classifyFinding, validateSqlcipherEvidence } from "../lib/backend-audit.mjs";
 import { assertE2eIdentifier, fileHash, removeProfile, verifyBuild } from "../lib/desktop-profile.mjs";
+import { reviewFrontendAudit } from "../lib/frontend-audit.mjs";
 
 const root = path.resolve(import.meta.dirname, "../..");
 const policy = JSON.parse(await readFile(path.join(root, "scripts/backend-audit-policy.json"), "utf8"));
@@ -32,6 +33,55 @@ test("audit rejects an active RSA advisory and unknown active findings", () => {
     assert.match(classifyFinding(finding, false, policy, policy), /inactive/);
   }
 });
+
+test("frontend audit accepts only reviewed dev-only paths to the picomatch finding", () => {
+  const picomatch = "node_modules/vite/node_modules/picomatch";
+  const packages = {
+    [picomatch]: { dev: true, version: "4.0.7" },
+    "node_modules/tinyglobby": { dev: true, version: "0.2.17" },
+    "node_modules/vite": { dev: true, version: "6.4.5" },
+  };
+  const advisory = { name: "picomatch", url: "https://github.com/advisories/GHSA-fc5q-39xc-vjpf" };
+  const report = {
+    auditReportVersion: 2,
+    metadata: { vulnerabilities: { total: 3 } },
+    vulnerabilities: {
+      vite: { nodes: ["node_modules/vite"], via: ["picomatch", "tinyglobby"] },
+      picomatch: { isDirect: false, nodes: [picomatch], via: [advisory] },
+      tinyglobby: { nodes: ["node_modules/tinyglobby"], via: ["picomatch"] },
+    },
+  };
+  assert.equal(reviewFrontendAudit(report, packages), 3);
+  assert.equal(reviewFrontendAudit({
+    auditReportVersion: 2, metadata: { vulnerabilities: { total: 0 } }, vulnerabilities: {},
+  }, {}), 0);
+
+  for (const [alter, error] of [
+    [(report, packages) => { packages[picomatch].dev = false; }, /not dev-only/],
+    [(report, packages) => { delete packages["node_modules/vite"].dev; }, /not dev-only/],
+    [(report, packages) => { packages[picomatch].version = "3.0.2"; }, /Unreviewed picomatch version/],
+    [report => { report.vulnerabilities.picomatch.isDirect = true; }, /reviewed transitive/],
+    [report => { report.vulnerabilities.picomatch.via[0].url += "-other"; }, /reviewed transitive/],
+    [report => { report.vulnerabilities.vite.via.push({ name: "vite" }); }, /Unreviewed frontend audit findings/],
+    [report => { report.vulnerabilities.tinyglobby.via = ["vite"]; }, /Unreviewed frontend audit findings/],
+    [report => { report.metadata.vulnerabilities.total = 4; }, /Incomplete npm audit report/],
+  ]) {
+    const changedReport = structuredClone(report);
+    const changedPackages = structuredClone(packages);
+    alter(changedReport, changedPackages);
+    assert.throws(() => reviewFrontendAudit(changedReport, changedPackages), error);
+  }
+});
+
+test("CI and the release gate require the frontend npm audit", async () => {
+  const pkg = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+  const gate = pkg.scripts["release:check"].split(/\s*&&\s*/);
+  assert.deepEqual(gate.slice(0, 2), ["npm audit", "npm run audit:frontend"]);
+  assert.match(pkg.scripts["audit:frontend"], /^npm audit --prefix frontend --omit=dev /);
+  const ci = await readFile(path.join(root, ".github/workflows/windows.yml"), "utf8");
+  assert.match(ci, /name: Audit frontend npm dependencies\s+run: npm run audit:frontend/);
+});
+
 test("desktop preflight rejects production, substituted and changed binaries before launch", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "netrix-e2e-preflight-"));
   try {
@@ -83,7 +133,7 @@ test("Windows CI and the release gate prepare the debug sidecar before Tauri che
   }
 
   assert.deepEqual(scripts["build:sidecar:debug"]?.split(/\s*&&\s*/), [
-    "cargo build --locked --manifest-path backend-rs/Cargo.toml",
+    "cargo build --locked --manifest-path backend-rs/Cargo.toml --target-dir backend-rs/target",
     "npm run prepare:sidecar:debug",
   ]);
   assert.equal(scripts["prepare:sidecar:debug"], "node scripts/prepare-sidecar.mjs debug");

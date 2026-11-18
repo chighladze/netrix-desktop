@@ -1,5 +1,6 @@
 //! Bounded, non-secret startup reasons for the desktop shell. Raw errors stay
 //! in local diagnostics; they must never become pre-unlock frontend DTOs.
+use netrix_backend::database_encryption::WorkspaceBusy;
 use std::io::ErrorKind;
 
 pub const PREFIX: &str = "NETRIX_STARTUP_FAILURE:";
@@ -13,11 +14,11 @@ pub enum Stage {
 
 fn code(stage: Stage, error: &anyhow::Error) -> &'static str {
     if matches!(stage, Stage::Workspace) {
+        if error.is::<WorkspaceBusy>() {
+            return "workspace_busy";
+        }
         for cause in error.chain() {
             match cause.to_string().as_str() {
-                "This workspace is already open in another Netrix process" => {
-                    return "workspace_busy";
-                }
                 "The database key file is missing; restore .database-key from the matching backup" => {
                     return "workspace_key_missing";
                 }
@@ -91,9 +92,6 @@ mod tests {
 
     #[test]
     fn distinguishes_workspace_recovery_from_port_conflicts() {
-        let busy = anyhow::Error::new(std::io::Error::from(ErrorKind::PermissionDenied))
-            .context("This workspace is already open in another Netrix process");
-        assert_eq!(code(Stage::Workspace, &busy), "workspace_busy");
         let key = anyhow::anyhow!(
             "The database key file is missing; restore .database-key from the matching backup"
         );

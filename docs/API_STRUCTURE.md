@@ -1,5 +1,29 @@
 # API Structure
 
+## Desktop process lifecycle
+
+`get_backend_status` returns `starting`, `ready` or `failed` with an optional
+`message`. Failures may include `diagnostic: {code, message, recovery, details}`
+and `log_path` for the local `tauri_main.log`. Diagnostics derive from allowlisted
+startup reasons or numeric exit codes. `get_backend_port` returns `0` until
+authenticated readiness. During the 15-second workspace lock retry, the phase
+remains `starting`. Continued contention produces `workspace_busy`.
+
+Only `main` can invoke `quit_app`. The command requests exit while the shell
+waits for the sidecar. Connections still dispatching requests during shutdown
+can receive 503. See [startup and shutdown](architecture.md#shutdown-and-restart).
+
+## Problem-report desktop IPC
+
+`get_problem_report_diagnostics` returns `{ app_version, operating_system,
+architecture, backend_status, reason, exit_code, signal, os_error }`. Numeric
+codes and the reason may be null; unavailable state is explicit. This shell-only
+snapshot does not call backend HTTP or access the database, vault, logs or paths.
+`open_problem_report({ url })` validates and opens only the public Netrix GitHub
+bug form in the system browser; it does not submit an issue. Both commands are
+available from the existing trusted main, detached-terminal and map windows.
+See `SECURITY_RULES.md` for field, URL and permission restrictions.
+
 ## Encrypted workspace startup
 
 Before the first master-password entry, authenticated `GET /health`,
@@ -58,12 +82,6 @@ All backend APIs are served by the Rust Axum sidecar on `127.0.0.1:<dynamic_port
 
 ### Readiness
 
-- Tauri `get_backend_status` keeps `status: starting|ready|failed` and the optional
-  `message`. Failed responses can also contain `diagnostic: {code, message,
-  recovery, details}` and `log_path` for the local `tauri_main.log`. Diagnostic
-  text is built from allowlisted startup reasons or process exit codes, never
-  raw stderr, API tokens, credentials or workspace contents. Exit code 1 is
-  generic; Windows `0xC0000135` identifies a missing DLL, not its filename.
 - `GET /health`: authenticated sidecar-readiness probe. It requires the normal
   `X-API-Token` header and returns `{"status":"ok"}` after the Axum router is
   accepting authenticated requests. Tauri uses this response—not a bare TCP

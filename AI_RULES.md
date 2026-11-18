@@ -12,7 +12,7 @@ These are mandatory project-specific rules for AI-assisted development in Netrix
 
 ## Source Ownership
 
-- `src-tauri/src/main.rs`: process lifecycle, random port selection, API token generation, sidecar launch, Tauri IPC.
+- `src-tauri/src/main.rs` and `backend_process.rs` own app exit, API token generation, sidecar supervision, authenticated readiness and Tauri IPC.
 - `backend-rs/src/main.rs`: Axum app assembly, CORS, auth middleware, body limits, logging, server startup.
 - `backend-rs/src/auth.rs`: HTTP token middleware and shared `AppState`.
 - `backend-rs/src/db.rs`: SQLite pool type and embedded migrations; `database_encryption.rs` owns keyed pools, verified conversion and key recovery, while `startup.rs` gates database access on the master password.

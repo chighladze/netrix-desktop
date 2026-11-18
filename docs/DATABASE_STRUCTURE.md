@@ -38,7 +38,9 @@ encrypted working database. There is no persistent plaintext recovery copy.
 Interrupted pre-publication attempts leave the source authoritative and retry
 from it; unpublished encrypted temporary files are never promoted blindly.
 Inactive sidecars are removed only after verification; live WAL/journals stop
-replacement. `.database-lock` excludes a second current Netrix process.
+replacement. An exclusive OS lock on `.database-lock` excludes a second Netrix
+process. Managed startup retries contention for up to 15 seconds on the same
+handle. Closing that handle releases the lock and preserves the file.
 
 Keep all three recovery files together, and retain the password used when that
 backup was made. Portable encrypted exports remain the preferred transfer format.

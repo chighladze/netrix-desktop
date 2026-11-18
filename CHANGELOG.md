@@ -6,11 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.3.0-beta.9] — 2026-11-18
+
+### Added
+- Preview and copy a problem report from Help or the startup failure screen before opening the public bug form.
+
+### Fixed
+- Stop terminal sessions, tunnels, transfers and the database during bounded sidecar shutdown.
+- Wait for the workspace lock during an immediate restart after a crash, including when Windows denies Job Object assignment.
+- Distinguish a blocked, timed-out or failed WebView2 probe from a missing runtime in Windows Setup.
+
+### Changed
+- Check the architecture and source of the Windows x64 payload. When a signing certificate is configured, sign the shell, backend, uninstaller and Setup before recording the installer checksum.
+
 ## [0.3.0-beta.8] — 2026-11-15
 
 ### Fixed
-- Explain local-service startup failures with specific recovery steps and copyable diagnostic codes/log location. Preserve structured storage/listener errors and distinguish Windows missing-DLL statuses from generic exit code 1.
-- Keep protected workspace content hidden if a late unlock response arrives after the local backend has failed.
+- Explain startup failures with safe diagnostic codes, recovery steps and the local log location.
+- Keep protected workspace content hidden if a late unlock response arrives after backend failure.
 - Build Windows release sidecars with static MSVC CRT, reject unexpected Visual C++ DLL dependencies in release checks, and verify WebView2 loader availability with an offline recovery attempt before installing app files. Clean-machine candidate QA is still required.
 - Bundle the complete Evergreen WebView2 installer on Windows to remove the runtime download dependency on target computers. The new package still requires missing-runtime installation QA before publication.
 

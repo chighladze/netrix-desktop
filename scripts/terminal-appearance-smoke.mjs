@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
-import { createServer } from "node:net";
 import { once } from "node:events";
+import { createInterface } from "node:readline";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -19,20 +19,21 @@ let backendClosed;
 let origin;
 
 async function start() {
-  const reservation = createServer();
-  reservation.listen(0, "127.0.0.1");
-  await once(reservation, "listening");
-  const port = reservation.address().port;
-  await new Promise(resolve => reservation.close(resolve));
   const env = { ...process.env, NETRIX_DATA_DIR: directory };
   delete env.NETRIX_DEV;
-  backend = spawn(binary, [String(port), String(process.pid)], { cwd: root, env, windowsHide: true, stdio: ["pipe", "ignore", "pipe"] });
+  backend = spawn(binary, ["--managed"], { cwd: root, env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
   backendClosed = new Promise(resolve => backend.once("close", resolve));
   let failure;
   backend.on("error", error => { failure = error; });
   backend.stderr.resume();
   backend.stdin.on("error", () => {});
-  backend.stdin.end(`${token}\n`);
+  const lines = createInterface({ input: backend.stdout });
+  const ready = once(lines, "line", { signal: AbortSignal.timeout(15_000) });
+  backend.stdin.write(`${token}\n`);
+  const [frame] = await ready;
+  lines.close();
+  const port = /^NETRIX_LISTENING:(\d+)$/.exec(frame)?.[1];
+  assert.ok(port, "Backend did not announce its loopback listener");
   origin = `http://127.0.0.1:${port}`;
   for (let attempt = 0; attempt < 100; attempt++) {
     if (failure) throw failure;
@@ -54,12 +55,16 @@ async function start() {
 
 async function stop() {
   if (!backend) return;
-  if (backend.pid && backend.exitCode === null) backend.kill();
+  backend.stdin.end();
   let timer;
   try {
-    await Promise.race([backendClosed, new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error("Backend did not close within 10 seconds")), 10_000);
+    const code = await Promise.race([backendClosed, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Backend did not close within 17 seconds")), 17_000);
     })]);
+    assert.equal(code, 0);
+  } catch (error) {
+    if (backend.pid && backend.exitCode === null) backend.kill();
+    throw error;
   } finally { clearTimeout(timer); }
   backend = undefined;
 }

@@ -15,6 +15,7 @@ const renderGuide = (
     onNavigate: vi.fn(),
     onCreateVault: vi.fn().mockResolvedValue({ ok: true }),
     onUnlockVault: vi.fn(),
+    onReportProblem: vi.fn(),
     ...overrides,
   };
 
@@ -23,6 +24,12 @@ const renderGuide = (
 };
 
 describe("HelpCenterModal", () => {
+  it("opens problem reporting from the guide without requiring an unlocked vault", () => {
+    const props = renderGuide({ mode: "guide" });
+    fireEvent.click(screen.getByRole("button", { name: "Report problem" }));
+    expect(props.onReportProblem).toHaveBeenCalledTimes(1);
+    expect(props.onUnlockVault).not.toHaveBeenCalled();
+  });
   it("creates the Vault directly from the first-run guide", async () => {
     const props = renderGuide();
 

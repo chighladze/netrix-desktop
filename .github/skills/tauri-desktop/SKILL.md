@@ -28,13 +28,14 @@ Guide changes to `src-tauri/`, which owns desktop lifecycle, sidecar launch, Tau
 ## Architecture Guidance
 
 - Development launches `backend-rs/target/debug/netrix_backend.exe` on Windows.
-- Production launches the bundled sidecar through `tauri-plugin-shell`.
+- On Windows the release shell launches `netrix_backend.exe` beside itself by absolute path. Tauri stages the target-suffixed build through `externalBin` and NSIS installs it without the suffix.
 - Tauri commands expose backend port/token/status, quit and fixed-purpose remembered Vault password operations. The latter are granted only to `main`, use the fixed Windows credential target and run on the blocking pool. Keep detached/preview capabilities free of credential-store access.
-- Windows Job Object support groups/kills backend processes with the app.
+- Preserve the private-pipe handshake. Sidecar binds `127.0.0.1:0`, sends the port on stdout and uses stdin EOF to start bounded cleanup. The shell confirms readiness with authenticated `/health` and waits for exit off the UI thread.
+- Attach the Windows Job Object using the child handle before sending the token. Check normal exit, parent termination and restart with `npm run test:e2e:desktop:build -- --lifecycle` in its isolated profile.
 
 ## Coding Standards
 
-- Log production shell errors to `%APPDATA%/Netrix/tauri_main.log` when stderr is invisible.
+- Log production shell errors to `%APPDATA%/com.netrix.app/tauri_main.log` when stderr is invisible.
 - Avoid adding new plugin permissions unless the feature requires them.
 - Document any CSP relaxation or permission expansion in `docs/SECURITY_RULES.md`.
 - Register app commands in both `generate_handler!` and `build.rs` command metadata. Native credential tests must use UUID-scoped disposable entries, never the production Vault-password entry.

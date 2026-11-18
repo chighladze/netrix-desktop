@@ -166,6 +166,19 @@ describe("backend readiness", () => {
     expect(invokeMock).toHaveBeenCalledTimes(2);
   });
 
+  it("lets the shell report a startup failure after the extended readiness window", async () => {
+    vi.useFakeTimers();
+    invokeMock.mockResolvedValue({ status: "starting" });
+    const { waitForBackendReady } = await loadApi();
+    const readiness = waitForBackendReady({ intervalMs: 1_000 });
+    await vi.advanceTimersByTimeAsync(21_000);
+    invokeMock.mockResolvedValue({ status: "failed", message: "The workspace lock is still held." });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(readiness).resolves.toEqual({
+      status: "failed", message: "The workspace lock is still held.",
+    });
+  });
+
   it("honors an already-aborted polling signal", async () => {
     const controller = new AbortController();
     controller.abort();

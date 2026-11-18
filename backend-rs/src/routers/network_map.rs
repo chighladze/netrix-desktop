@@ -1135,19 +1135,14 @@ async fn ping_map_hosts(
     }
 
     // Ping concurrently.
-    let mut tasks = Vec::new();
-    for hn in hostname_to_hids.keys() {
-        let hn = hn.clone();
-        tasks.push(tokio::spawn(async move {
-            let ok = ping_host(&hn).await;
-            (hn, ok)
-        }));
-    }
-    let results = futures::future::join_all(tasks).await;
-    let mut hostname_reachable: HashMap<String, bool> = HashMap::new();
-    for (hn, ok) in results.into_iter().flatten() {
-        hostname_reachable.insert(hn, ok);
-    }
+    let hostname_reachable: HashMap<_, _> = futures::future::join_all(
+        hostname_to_hids
+            .keys()
+            .map(|hostname| async move { (hostname, ping_host(hostname).await) }),
+    )
+    .await
+    .into_iter()
+    .collect();
 
     let mut response = HashMap::new();
     for node in &nodes {
@@ -1175,6 +1170,7 @@ async fn ping_host(hostname: &str) -> bool {
 
     match tokio::process::Command::new("ping")
         .args([param, "1", timeout_flag, timeout_val, hostname])
+        .kill_on_drop(true)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()

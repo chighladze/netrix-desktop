@@ -96,7 +96,7 @@ export async function waitForBackendReady(
   options: BackendReadinessPollingOptions = {},
 ): Promise<BackendStatus> {
   const intervalMs = Math.max(50, Math.min(options.intervalMs ?? 150, 2_000));
-  const timeoutMs = Math.max(1_000, Math.min(options.timeoutMs ?? 20_000, 60_000));
+  const timeoutMs = Math.max(1_000, Math.min(options.timeoutMs ?? 25_000, 60_000));
   const deadline = Date.now() + timeoutMs;
   let lastStatusError: unknown;
 

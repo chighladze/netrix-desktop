@@ -32,6 +32,9 @@ npm run tauri dev
 binary for Tauri. `tauri dev` starts the Vite frontend and the native app. Running
 the frontend alone does not provide desktop IPC or a backend workspace.
 
+For the source used by the official beta.9 installer, run
+`git switch --detach v0.3.0-beta.9` immediately after cloning, before installing dependencies.
+
 Use a disposable development workspace. An unmodified development build uses the
 same application identifier as official Netrix. See [CUSTOMIZATION.md](CUSTOMIZATION.md)
 before testing a fork against valuable data.
@@ -64,6 +67,21 @@ The extended `npm run release:check` also needs `cargo-audit` and NSIS packaging
 tools. It includes binary-dependency checks and installer-hook fixtures. Review
 manual installation, upgrade and runtime behavior before distributing a custom
 installer. Keep the original workspace and an encrypted backup intact.
+
+## Verify an installed build
+
+Record the exact EXE's SHA-256 with `Get-FileHash -Algorithm SHA256`. Install into a
+disposable Windows profile, open and unlock Netrix, save a test host, and confirm
+that it survives a restart. For an upgrade, create the host in beta.8 first, then
+install beta.9 over it and reopen the same workspace. Keep the original
+`.database-lock` throughout both tests.
+
+The [sidecar lifecycle checks](TESTING.md#sidecar-lifecycle) cover immediate restart
+when Windows denies Job Object assignment. To verify offline WebView2 recovery,
+start with a disposable VM where the runtime is absent and disconnect the network
+before installing. Record the Windows edition, runtime version and observed result.
+The [official installer release](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.9)
+records these checks for the distributed EXE.
 
 ## GitHub Actions
 

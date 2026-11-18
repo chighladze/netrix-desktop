@@ -12,9 +12,9 @@ These instructions are for AI agents working in this repository. Netrix is a loc
 
 ## Core Runtime Flow
 
-1. Tauri finds a free localhost port and generates a per-session UUID API token.
-2. Tauri starts the Rust backend sidecar and writes the API token to backend stdin.
-3. Frontend calls Tauri IPC to retrieve the port/token.
+1. Tauri generates a per-launch API token, starts the sidecar and writes the token to private stdin.
+2. The sidecar binds on `127.0.0.1:0` and reports the bound port on private stdout. Tauri authenticates `/health` before publishing readiness.
+3. The frontend retrieves the verified port and token through Tauri IPC. Tauri closes the stdin pipe to request bounded backend shutdown.
 4. HTTP requests use `X-API-Token`; WebSockets use `Sec-WebSocket-Protocol` values `netrix.v1` and `netrix-token.<token>`.
 5. Backend binds only to `127.0.0.1`, applies token middleware, serves Axum routers, and uses SQLite under the Netrix app data directory.
 
@@ -25,7 +25,7 @@ These instructions are for AI agents working in this repository. Netrix is a loc
 - Use parameterized SQLx queries with `.bind(...)`. Do not build SQL with user-controlled strings.
 - API errors should use `AppError` and return `{"detail": "..."}` through the existing `IntoResponse` path.
 - Saved-host secrets must go through the vault. Never add plaintext credentials to API responses.
-- Quick-connect currently sends ephemeral credentials in a WebSocket query string. Treat that as a known risk and do not expand that pattern.
+- Quick-connect sends ephemeral credentials through authenticated HTTP and uses an expiring one-time ticket for the WebSocket. Keep credentials out of URLs.
 - Validate inputs at the backend boundary. Host validation is the strongest existing example; match or improve that standard for new routers.
 - For schema changes, add a numbered SQL migration and update the embedded migration list in `backend-rs/src/db.rs` in the same change.
 - For frontend API calls, use `authenticatedFetch` from `frontend/src/api.ts` unless a browser API requires manual headers, as in SFTP upload progress.

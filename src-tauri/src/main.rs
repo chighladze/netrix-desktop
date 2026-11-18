@@ -1,22 +1,21 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::env;
-use std::io::{BufRead, BufReader, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::sync::{
+    atomic::{AtomicBool, AtomicU16, Ordering},
+    mpsc, Mutex, OnceLock,
+};
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
-use tauri_plugin_shell::ShellExt;
 use tauri_plugin_window_state::StateFlags;
 
-use tauri_plugin_shell::process::CommandChild;
 use uuid::Uuid;
 
 mod backend_diagnostics;
+mod backend_process;
+mod problem_report;
 #[cfg(windows)]
 mod runtime_probe;
 mod sftp_save_access;
@@ -27,14 +26,11 @@ mod vault_keychain;
 const APP_DATA_ENV: &str = "NETRIX_DATA_DIR";
 const APP_IDENTIFIER: &str = "com.netrix.app";
 const LEGACY_APP_DATA_DIR_NAME: &str = "Netrix";
-const BACKEND_READY_TIMEOUT: Duration = Duration::from_secs(15);
-const BACKEND_READY_INTERVAL: Duration = Duration::from_millis(100);
-const BACKEND_HEALTH_IO_TIMEOUT: Duration = Duration::from_millis(500);
 
 static APP_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 static APP_SCOPE_IDENTIFIER: OnceLock<String> = OnceLock::new();
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum BackendPhase {
     Starting,
@@ -84,9 +80,10 @@ impl BackendStatus {
         report: Option<&backend_diagnostics::StartupReport>,
     ) -> Self {
         let diagnostic = backend_diagnostics::terminated(code, signal, report);
+        let message = diagnostic.message;
         Self {
-            diagnostic: Some(diagnostic.clone()),
-            ..Self::failed(diagnostic.message)
+            diagnostic: Some(diagnostic),
+            ..Self::failed(message)
         }
     }
 
@@ -110,8 +107,12 @@ impl BackendStatus {
 }
 
 #[tauri::command]
-fn quit_app(app: AppHandle) {
-    app.exit(0);
+fn quit_app(window: tauri::WebviewWindow) -> Result<(), &'static str> {
+    if window.label() != "main" {
+        return Err("Only the main window can quit Netrix");
+    }
+    window.app_handle().exit(0);
+    Ok(())
 }
 
 /// A detached terminal may finish its own close transaction, but may never
@@ -124,111 +125,102 @@ fn close_terminal_window(window: tauri::WebviewWindow) -> Result<(), String> {
     window.destroy().map_err(|error| error.to_string())
 }
 
-/// Holds the backend process handles and port.
+#[derive(Default)]
+struct ExitGate {
+    requested: AtomicBool,
+    complete: AtomicBool,
+}
+
+impl ExitGate {
+    fn begin(&self) -> bool {
+        !self.requested.swap(true, Ordering::AcqRel)
+    }
+
+    fn requested(&self) -> bool {
+        self.requested.load(Ordering::Acquire)
+    }
+}
+
 struct BackendState {
-    child: Mutex<Option<Child>>, // Used in dev mode (std process)
-    sidecar_child: Mutex<Option<CommandChild>>, // Used in prod mode (tauri shell sidecar)
-    port: u16,
+    exit: ExitGate,
+    exited: Mutex<Option<mpsc::Receiver<()>>>,
+    port: AtomicU16,
     api_token: String,
     status: Mutex<BackendStatus>,
-    #[cfg(windows)]
-    _job: Mutex<Option<JobHandle>>, // Windows Job Object to group processes
 }
 
-/// Find a free TCP port by binding to port 0.
-fn find_free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .expect("Failed to bind to find free port")
-        .local_addr()
-        .expect("Failed to get local addr")
-        .port()
-}
+impl BackendState {
+    fn new() -> Self {
+        Self {
+            exit: ExitGate::default(),
+            exited: Mutex::new(None),
+            port: AtomicU16::new(0),
+            api_token: Uuid::new_v4().to_string(),
+            status: Mutex::new(BackendStatus::starting()),
+        }
+    }
 
-// ─── Windows Job Object ─────────────────────────────────────────────
-// Groups the backend child process under the main Netrix process so
-// Task Manager shows a single "Netrix" entry instead of two.
+    fn phase(&self) -> BackendPhase {
+        self.status
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .status
+    }
 
-#[cfg(windows)]
-struct JobHandle(windows_sys::Win32::Foundation::HANDLE);
+    fn is_starting(&self) -> bool {
+        self.phase() == BackendPhase::Starting
+    }
 
-#[cfg(windows)]
-unsafe impl Send for JobHandle {}
-#[cfg(windows)]
-unsafe impl Sync for JobHandle {}
+    fn fail(&self, message: String) {
+        *self
+            .status
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = BackendStatus::failed(&message);
+        log_error(&message);
+    }
 
-#[cfg(windows)]
-impl Drop for JobHandle {
-    fn drop(&mut self) {
-        unsafe {
-            windows_sys::Win32::Foundation::CloseHandle(self.0);
+    fn fail_if_starting(&self, message: String) {
+        if self.is_starting() {
+            self.fail(message);
         }
     }
 }
 
-#[cfg(windows)]
-fn create_job_object() -> Option<JobHandle> {
-    use windows_sys::Win32::Foundation::*;
-    use windows_sys::Win32::System::JobObjects::*;
-
-    unsafe {
-        let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
-        if job.is_null() || job == INVALID_HANDLE_VALUE {
-            eprintln!("Failed to create Job Object");
-            return None;
-        }
-
-        // Configure: kill all processes in the job when the handle is closed
-        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-
-        let set_ok = SetInformationJobObject(
-            job,
-            JobObjectExtendedLimitInformation,
-            &info as *const _ as *const _,
-            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-        );
-
-        if set_ok == 0 {
-            eprintln!("Failed to set Job Object limits");
-            CloseHandle(job);
-            return None;
-        }
-
-        Some(JobHandle(job))
-    }
-}
-
-#[cfg(windows)]
-fn assign_process_to_job(job: &JobHandle, process_id: u32) {
-    use windows_sys::Win32::System::JobObjects::*;
-    use windows_sys::Win32::System::Threading::*;
-
-    unsafe {
-        let proc_handle = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, process_id);
-        if !proc_handle.is_null() {
-            let ok = AssignProcessToJobObject(job.0, proc_handle);
-            if ok == 0 {
-                eprintln!("Failed to assign process {} to Job Object", process_id);
+fn finish_app_exit(app: AppHandle, code: i32) {
+    let worker = app.clone();
+    let started = std::thread::Builder::new()
+        .name("netrix-app-exit".into())
+        .spawn(move || {
+            let state = worker.state::<BackendState>();
+            let exited = state
+                .exited
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .take();
+            if let Some(exited) = exited {
+                if let Err(error) = exited.recv_timeout(backend_process::EXIT_TIMEOUT) {
+                    log_error(&format!(
+                        "Backend supervisor did not confirm shutdown: {error}"
+                    ));
+                }
             }
-            windows_sys::Win32::Foundation::CloseHandle(proc_handle);
-        } else {
-            eprintln!(
-                "Failed to open process {} for Job Object assignment",
-                process_id
-            );
-        }
+            state.exit.complete.store(true, Ordering::Release);
+            worker.exit(code);
+        });
+    if let Err(error) = started {
+        log_error(&format!("Could not start the exit waiter: {error}"));
+        app.state::<BackendState>()
+            .exit
+            .complete
+            .store(true, Ordering::Release);
+        app.exit(code);
     }
-}
-
-#[cfg(windows)]
-fn assign_child_to_job(job: &JobHandle, child: &Child) {
-    assign_process_to_job(job, child.id());
 }
 
 /// Tauri command to get the backend port.
 #[tauri::command]
 fn get_backend_port(state: State<BackendState>) -> u16 {
-    state.port
+    state.port.load(Ordering::Acquire)
 }
 
 /// Tauri command to get the API token.
@@ -255,83 +247,6 @@ fn get_backend_status(state: State<BackendState>) -> BackendStatus {
         });
     }
     status
-}
-
-fn update_backend_status(app: &AppHandle, status: BackendStatus) {
-    let state: State<BackendState> = app.state();
-    if let Ok(mut current) = state.status.lock() {
-        *current = status;
-    };
-}
-
-fn mark_backend_ready(app: &AppHandle) {
-    let state: State<BackendState> = app.state();
-    if let Ok(mut current) = state.status.lock() {
-        if matches!(&current.status, BackendPhase::Starting) {
-            *current = BackendStatus::ready();
-        }
-    };
-}
-
-fn mark_backend_failed_if_starting(app: &AppHandle, message: String) {
-    let state: State<BackendState> = app.state();
-    if let Ok(mut current) = state.status.lock() {
-        if matches!(&current.status, BackendPhase::Starting) {
-            *current = BackendStatus::failed(message);
-        }
-    };
-}
-
-fn backend_health_status(
-    address: &SocketAddr,
-    port: u16,
-    api_token: &str,
-) -> std::io::Result<Option<u16>> {
-    let mut stream = TcpStream::connect_timeout(address, BACKEND_READY_INTERVAL)?;
-    stream.set_read_timeout(Some(BACKEND_HEALTH_IO_TIMEOUT))?;
-    stream.set_write_timeout(Some(BACKEND_HEALTH_IO_TIMEOUT))?;
-
-    let request = format!(
-        "GET /health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nX-API-Token: {api_token}\r\nConnection: close\r\n\r\n"
-    );
-    stream.write_all(request.as_bytes())?;
-
-    let mut status_line = String::new();
-    BufReader::new(stream).read_line(&mut status_line)?;
-    Ok(status_line
-        .split_ascii_whitespace()
-        .nth(1)
-        .and_then(|status| status.parse::<u16>().ok()))
-}
-
-fn spawn_backend_readiness_probe(app: AppHandle, port: u16, api_token: String) {
-    std::thread::spawn(move || {
-        let address = SocketAddr::from(([127, 0, 0, 1], port));
-        let deadline = Instant::now() + BACKEND_READY_TIMEOUT;
-        while Instant::now() < deadline {
-            match backend_health_status(&address, port, &api_token) {
-                Ok(Some(200)) => {
-                    mark_backend_ready(&app);
-                    return;
-                }
-                Ok(Some(403)) => {
-                    let message = "Backend health check rejected the parent API token".to_string();
-                    log_error(&message);
-                    mark_backend_failed_if_starting(&app, message);
-                    return;
-                }
-                _ => {}
-            }
-            std::thread::sleep(BACKEND_READY_INTERVAL);
-        }
-
-        let message = format!(
-            "Backend did not become ready on localhost port {port} within {} seconds",
-            BACKEND_READY_TIMEOUT.as_secs()
-        );
-        log_error(&message);
-        mark_backend_failed_if_starting(&app, message);
-    });
 }
 
 #[derive(Default)]
@@ -513,15 +428,6 @@ fn main() {
         std::process::exit(2);
     }
     let _ = APP_SCOPE_IDENTIFIER.set(identifier.clone());
-    // Find a free port before starting Tauri
-    let port = find_free_port();
-    // Generate a secure unique token for this session
-    let api_token = Uuid::new_v4().to_string();
-
-    // Create a Windows Job Object to group backend under Netrix in Task Manager
-    #[cfg(windows)]
-    let job = create_job_object();
-
     tauri::Builder::default()
         // Keep a single owner for the shared database and in-memory vault key.
         // This must be the first plugin so a secondary launch exits before it
@@ -541,20 +447,14 @@ fn main() {
                 .with_state_flags(StateFlags::SIZE | StateFlags::MAXIMIZED)
                 .build(),
         )
-        .manage(BackendState {
-            child: Mutex::new(None),
-            sidecar_child: Mutex::new(None),
-            port,
-            api_token: api_token.clone(),
-            status: Mutex::new(BackendStatus::starting()),
-            #[cfg(windows)]
-            _job: Mutex::new(job),
-        })
+        .manage(BackendState::new())
         .manage(terminal_drag::DragObservers::default())
         .invoke_handler(tauri::generate_handler![
             get_backend_port,
             get_api_token,
             get_backend_status,
+            problem_report::get_problem_report_diagnostics,
+            problem_report::open_problem_report,
             vault_keychain::read_vault_password,
             vault_keychain::save_vault_password,
             vault_keychain::remove_vault_password,
@@ -569,12 +469,11 @@ fn main() {
         ])
         .on_page_load(sftp_save_access::cancel_on_navigation)
         .setup(move |app| {
+            let backend = app.state::<BackendState>();
             let app_data_dir = match app.path().app_data_dir() {
                 Ok(path) => path,
                 Err(error) => {
-                    let message = format!("Failed to resolve app data directory: {error}");
-                    log_error(&message);
-                    update_backend_status(app.handle(), BackendStatus::failed(message));
+                    backend.fail(format!("Failed to resolve app data directory: {error}"));
                     return Ok(());
                 }
             };
@@ -604,24 +503,20 @@ fn main() {
                         }
                     }
                     Err(error) => {
-                        let message = format!(
+                        backend.fail(format!(
                             "Failed to migrate legacy app data from {} to {}: {error}",
                             legacy_dir.display(),
                             app_data_dir.display()
-                        );
-                        log_error(&message);
-                        update_backend_status(app.handle(), BackendStatus::failed(message));
+                        ));
                         return Ok(());
                     }
                 }
             }
             if let Err(error) = std::fs::create_dir_all(&app_data_dir) {
-                let message = format!(
+                backend.fail(format!(
                     "Failed to create app data directory {}: {error}",
                     app_data_dir.display()
-                );
-                log_error(&message);
-                update_backend_status(app.handle(), BackendStatus::failed(message));
+                ));
                 return Ok(());
             }
 
@@ -632,219 +527,49 @@ fn main() {
                 log_error("setup: main webview window not found");
             }
 
-            let port_str = port.to_string();
-            let tauri_pid = std::process::id().to_string();
-            let token_arg = api_token.clone();
-
-            if cfg!(debug_assertions) {
-                // Development mode — launch Rust backend binary from backend-rs/target/debug
-                let manifest_dir = env!("CARGO_MANIFEST_DIR");
-                let project_root = std::path::PathBuf::from(manifest_dir).parent().unwrap().to_path_buf();
-                let backend_bin = if app.config().identifier.starts_with("com.netrix.e2e.") {
-                    // The verified E2E build manifest supplies its separate sidecar.
-                    std::env::var_os("NETRIX_E2E_BACKEND").map(PathBuf::from).filter(|path| path.is_absolute()).unwrap_or_default()
-                } else {
-                    project_root.join("backend-rs").join("target").join("debug").join("netrix_backend.exe")
-                };
-
-                if !backend_bin.exists() {
-                    let message = format!(
-                        "Backend binary not found at {:?}. Run: cargo build --manifest-path backend-rs/Cargo.toml",
-                        backend_bin
-                    );
-                    log_error(&message);
-                    update_backend_status(app.handle(), BackendStatus::failed(message));
-                    return Ok(());
-                }
-
-                println!("Launching Backend (Dev): {:?} {} {} <stdin_token>", backend_bin, port_str, tauri_pid);
-
-                let mut cmd = Command::new(&backend_bin);
-                cmd.arg(&port_str)
-                    .arg(&tauri_pid)
-                    .env(APP_DATA_ENV, &app_data_dir)
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::inherit())
-                    .stderr(Stdio::inherit());
-
-                #[cfg(windows)]
-                {
-                    use std::os::windows::process::CommandExt;
-                    const CREATE_NO_WINDOW: u32 = 0x08000000;
-                    cmd.creation_flags(CREATE_NO_WINDOW);
-                }
-
-                match cmd.spawn() {
-                    Ok(mut child) => {
-                        // Write token to stdin
-                        let token_result = if let Some(mut stdin) = child.stdin.take() {
-                            stdin.write_all(format!("{}\n", token_arg).as_bytes())
-                        } else {
-                            Err(std::io::Error::new(
-                                std::io::ErrorKind::BrokenPipe,
-                                "backend stdin pipe was not created",
-                            ))
-                        };
-                        if let Err(error) = token_result {
-                            let message = format!(
-                                "Failed to deliver the API token to backend stdin: {error}"
-                            );
-                            log_error(&message);
-                            let _ = child.kill();
-                            update_backend_status(app.handle(), BackendStatus::failed(message));
-                            return Ok(());
-                        }
-
-                        // Assign to Job Object so it groups under Netrix in Task Manager
-                        #[cfg(windows)]
-                        {
-                            let state: State<BackendState> = app.state();
-                            if let Ok(guard) = state._job.lock() {
-                                if let Some(ref job) = *guard {
-                                    assign_child_to_job(job, &child);
-                                }
-                            };
-                        }
-
-                        let state: State<BackendState> = app.state();
-                        if let Ok(mut stored_child) = state.child.lock() {
-                            *stored_child = Some(child);
-                        }
-                        spawn_backend_readiness_probe(
-                            app.handle().clone(),
-                            port,
-                            token_arg.clone(),
-                        );
-                    }
-                    Err(error) => {
-                        let message = format!("Failed to spawn backend: {error}");
-                        log_error(&message);
-                        update_backend_status(app.handle(), BackendStatus::failed(message));
-                    }
-                }
-            } else {
-                // Production mode - launch via Sidecar
-                let shell = app.shell();
-                let sidecar_result = shell.sidecar("netrix_backend");
-
-                match sidecar_result {
-                    Ok(sidecar_command) => {
-                        let sidecar_command = sidecar_command
-                            .arg(&port_str)
-                            .arg(&tauri_pid)
-                            .env(APP_DATA_ENV, &app_data_dir);
-
-                        match sidecar_command.spawn() {
-                            Ok((mut rx, mut child)) => {
-                                // Drain events even if the loader exits before stdin can be written.
-                                let event_app = app.handle().clone();
-                                let event_token = token_arg.clone();
-                                tauri::async_runtime::spawn(async move {
-                                    let mut startup_report = None;
-                                    while let Some(event) = rx.recv().await {
-                                        match event {
-                                            tauri_plugin_shell::process::CommandEvent::Stdout(line) => {
-                                                println!("BACKEND: {}", String::from_utf8_lossy(&line).trim());
-                                            }
-                                            tauri_plugin_shell::process::CommandEvent::Stderr(line) => {
-                                                if let Some(report) = backend_diagnostics::StartupReport::from_line(&line) {
-                                                    startup_report = Some(report);
-                                                }
-                                                let msg = String::from_utf8_lossy(&line);
-                                                log_error(&format!("BACKEND STDERR: {}", msg.trim().replace(&event_token, "[redacted]")));
-                                            }
-                                            tauri_plugin_shell::process::CommandEvent::Error(err) => {
-                                                let message = format!("BACKEND ERROR: {}", err.replace(&event_token, "[redacted]"));
-                                                log_error(&message);
-                                                let state: State<BackendState> = event_app.state();
-                                                if let Ok(mut current) = state.status.lock() {
-                                                    if !matches!(current.status, BackendPhase::Failed) {
-                                                        *current = BackendStatus::failed(message);
-                                                    }
-                                                };
-                                            }
-                                            tauri_plugin_shell::process::CommandEvent::Terminated(payload) => {
-                                                log_error(&format!(
-                                                    "BACKEND TERMINATED: code={:?} signal={:?}",
-                                                    payload.code, payload.signal
-                                                ));
-                                                let state: State<BackendState> = event_app.state();
-                                                if let Ok(mut current) = state.status.lock() {
-                                                    current.record_termination(payload.code, payload.signal, startup_report.as_ref());
-                                                };
-                                            }
-                                            _ => {}
-                                        }
-                                    }
-                                });
-
-                                // Write token to sidecar stdin
-                                if let Err(error) =
-                                    child.write(format!("{}\n", token_arg).as_bytes())
-                                {
-                                    let message = format!(
-                                        "Failed to deliver the API token to sidecar stdin: {error}"
-                                    );
-                                    log_error(&message);
-                                    mark_backend_failed_if_starting(app.handle(), message);
-                                    let _ = child.kill();
-                                    return Ok(());
-                                }
-
-                                // Assign sidecar to Job Object so it groups under Netrix in Task Manager
-                                #[cfg(windows)]
-                                {
-                                    let pid = child.pid();
-                                    let state: State<BackendState> = app.state();
-                                    if let Ok(guard) = state._job.lock() {
-                                        if let Some(ref job) = *guard {
-                                            assign_process_to_job(job, pid);
-                                        }
-                                    };
-                                }
-
-                                let state: State<BackendState> = app.state();
-                                if let Ok(mut stored_child) = state.sidecar_child.lock() {
-                                    *stored_child = Some(child);
-                                }
-                                spawn_backend_readiness_probe(
-                                    app.handle().clone(),
-                                    port,
-                                    token_arg.clone(),
-                                );
-                            }
-                            Err(error) => {
-                                let message = format!("Failed to spawn sidecar: {error}");
-                                log_error(&message);
-                                update_backend_status(
-                                    app.handle(),
-                                    BackendStatus::failed(message),
-                                );
-                            }
-                        }
-                    }
-                    Err(error) => {
-                        let message = format!("Failed to create sidecar: {error}");
-                        log_error(&message);
-                        update_backend_status(app.handle(), BackendStatus::failed(message));
-                    }
-                }
+            let launch = backend_process::binary_path(&app.config().identifier).and_then(|binary| {
+                backend_process::launch(app.handle(), binary, app_data_dir)
+            });
+            if let Err(error) = launch {
+                backend.fail(format!("Could not start the local Netrix service: {error}"));
             }
-
             Ok(())
         })
-        .build(context)
+                .build(context)
         .expect("error while running tauri application")
-        .run(|_app_handle, event| {
-            if let tauri::RunEvent::Exit = event {
-                // Main process exit - Job Object will auto-kill children (JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE)
-                std::process::exit(0);
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
+                let state = app.state::<BackendState>();
+                if !state.exit.complete.load(Ordering::Acquire) {
+                    api.prevent_exit();
+                    if state.exit.begin() {
+                        finish_app_exit(app.clone(), code.unwrap_or(0));
+                    }
+                }
             }
         });
 }
-
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn repeat_exit_requests_cannot_start_another_shutdown() {
+        let exit = super::ExitGate::default();
+        assert!(!exit.requested());
+        assert!(exit.begin());
+        assert!(exit.requested());
+        assert!(!exit.begin());
+    }
+
+    #[test]
+    fn whole_app_quit_is_main_window_only() {
+        let main = include_str!("../capabilities/default.json");
+        let terminal = include_str!("../capabilities/detached-terminal.json");
+        let map = include_str!("../capabilities/detached-map.json");
+        assert!(main.contains("allow-quit-app"));
+        assert!(!terminal.contains("allow-quit-app"));
+        assert!(!map.contains("allow-quit-app"));
+    }
+
     #[test]
     fn process_exit_preserves_a_setup_failure_but_a_loader_reason_takes_priority() {
         let mut status = BackendStatus::failed("Could not deliver the startup token");
@@ -900,39 +625,6 @@ mod tests {
             assert!(!terminal.contains(permission));
             assert!(!map.contains(permission));
         }
-    }
-
-    #[test]
-    fn backend_health_probe_sends_the_api_token() {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind health test listener");
-        let address = listener.local_addr().expect("read health listener address");
-        let server = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().expect("accept health probe");
-            let mut request = String::new();
-            {
-                let mut reader = BufReader::new(&mut stream);
-                loop {
-                    let mut line = String::new();
-                    reader.read_line(&mut line).expect("read health header");
-                    if line == "\r\n" || line.is_empty() {
-                        break;
-                    }
-                    request.push_str(&line);
-                }
-            }
-            stream
-                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
-                .expect("write health response");
-            request
-        });
-
-        let status = backend_health_status(&address, address.port(), "health-test-token")
-            .expect("probe health endpoint");
-        let request = server.join().expect("join health test server");
-
-        assert_eq!(status, Some(200));
-        assert!(request.starts_with("GET /health HTTP/1.1\r\n"));
-        assert!(request.contains("X-API-Token: health-test-token\r\n"));
     }
 
     #[test]

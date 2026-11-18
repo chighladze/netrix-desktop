@@ -2,6 +2,7 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import React, { useState } from "react";
 import { IoAlertCircleOutline } from "react-icons/io5";
 import type { BackendStatus } from "../../api";
+import ReportProblemButton from "../feedback/ReportProblemButton";
 
 export default function BackendFailurePanel({ failure }: { failure: BackendStatus }) {
   const [copyStatus, setCopyStatus] = useState("");
@@ -31,6 +32,7 @@ export default function BackendFailurePanel({ failure }: { failure: BackendStatu
       <pre>{details}</pre>
     </details>
     <button type="button" className="workspace-lock-secondary" onClick={() => { void copy(); }}>Copy diagnostic details</button>
+    <ReportProblemButton serviceFailure className="workspace-lock-secondary ml-2" />
     {copyStatus && <p role="status" className="workspace-backend-copy-status">{copyStatus}</p>}
   </>;
 }

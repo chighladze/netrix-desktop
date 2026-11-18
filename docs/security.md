@@ -71,7 +71,7 @@ All traffic between frontend and backend stays on localhost.
 
 ### Process Lifecycle
 
-- Backend is spawned by Tauri and monitored via parent PID.
+- Tauri supervises the backend with a Windows Job Object and private stdin EOF. The full process and token boundaries are in [Security Rules](SECURITY_RULES.md).
 - Backend exits when the parent process terminates.
 - Tauri reports backend startup through `get_backend_status` as `starting`,
   `ready`, or `failed`; `ready` requires a successful authenticated

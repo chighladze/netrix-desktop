@@ -148,8 +148,14 @@ impl Drop for WorkerGuard {
     }
 }
 
+#[derive(Default)]
+struct Registry {
+    jobs: HashMap<String, Transfer>,
+    stopping: bool,
+}
+
 #[derive(Clone, Default)]
-pub struct TransferRegistry(Arc<Mutex<HashMap<String, Transfer>>>);
+pub struct TransferRegistry(Arc<Mutex<Registry>>);
 
 impl TransferRegistry {
     pub fn create(
@@ -160,7 +166,11 @@ impl TransferRegistry {
         bytes_total: Option<u64>,
         overwrite: bool,
     ) -> Result<Transfer, String> {
-        let mut jobs = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if registry.stopping {
+            return Err("SFTP is shutting down".into());
+        }
+        let jobs = &mut registry.jobs;
         if jobs
             .values()
             .filter(|job| !job.info().is_terminal())
@@ -210,6 +220,7 @@ impl TransferRegistry {
         self.0
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+            .jobs
             .get(id)
             .cloned()
     }
@@ -242,6 +253,7 @@ impl TransferRegistry {
             .0
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+            .jobs
             .values()
             .map(Transfer::info)
             .collect();
@@ -257,6 +269,7 @@ impl TransferRegistry {
         self.0
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+            .jobs
             .retain(|_, job| !job.info().is_terminal());
     }
 
@@ -265,6 +278,7 @@ impl TransferRegistry {
             .0
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+            .jobs
             .values()
             .cloned()
             .collect();
@@ -274,11 +288,53 @@ impl TransferRegistry {
             }
         }
     }
+
+    pub(crate) fn shutdown(&self) {
+        let mut registry = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        registry.stopping = true;
+        for job in registry.jobs.values() {
+            // A rename already sent to the server keeps its existing bounded
+            // acknowledgement window. Never clean up a committed destination.
+            let _ = job.request_cancel();
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn shutdown_cancels_queued_and_active_transfers_but_keeps_an_inflight_commit() {
+        let registry = TransferRegistry::default();
+        let queued = registry
+            .create(1, "download", "/queued".into(), None, false)
+            .unwrap();
+        let active = registry
+            .create(2, "upload", "/upload".into(), None, false)
+            .unwrap();
+        let commit = registry
+            .create(3, "upload", "/commit".into(), None, true)
+            .unwrap();
+        registry
+            .claim(&active.info().id, 2, "upload", "/upload")
+            .unwrap();
+        registry
+            .claim(&commit.info().id, 3, "upload", "/commit")
+            .unwrap();
+        commit.begin_commit().unwrap();
+        registry.shutdown();
+        registry.shutdown();
+        assert_eq!(queued.info().status, "cancelled");
+        assert!(active.cancel.is_cancelled());
+        assert!(active.begin_commit().is_err());
+        assert_eq!(commit.info().status, "committing");
+        assert!(!commit.cancel.is_cancelled());
+        commit.finish(Ok(()));
+        assert_eq!(commit.info().status, "completed");
+        assert!(registry
+            .create(1, "download", "/new".into(), None, false)
+            .is_err());
+    }
     #[tokio::test]
     async fn claim_is_bound_to_request_and_single_use() {
         let jobs = TransferRegistry::default();

@@ -7,6 +7,8 @@
     "allow-get-backend-port",
     "allow-get-api-token",
     "allow-get-backend-status",
+    "allow-get-problem-report-diagnostics",
+    "allow-open-problem-report",
     "allow-close-terminal-window",
     "allow-wait-terminal-drag-release",
     "allow-cancel-terminal-drag",

@@ -21,13 +21,23 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
+use tokio_util::sync::CancellationToken;
 use zeroize::Zeroizing;
 
 pub const KEY_FILE: &str = ".database-key";
 pub const MAX_MASTER_PASSWORD_BYTES: usize = 1024;
 const KEY_CONTEXT: &[u8] = b"Netrix SQLCipher wrapping key v1";
 const KEY_CHECK: &[u8] = b"netrix-database-key-v1\0";
+// The previous sidecar can spend up to 14 seconds shutting down after it
+// loses its parent pipe. The shell's readiness budget also covers inspection.
+const WORKSPACE_LOCK_WAIT: Duration = Duration::from_secs(15);
+const WORKSPACE_LOCK_RETRY: Duration = Duration::from_millis(100);
+
+#[derive(Debug, thiserror::Error)]
+#[error("This workspace is already open in another Netrix process")]
+pub struct WorkspaceBusy(#[source] std::io::Error);
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
@@ -244,18 +254,75 @@ fn write_envelope(directory: &Path, envelope: &Envelope) -> anyhow::Result<()> {
     result
 }
 
+fn open_workspace_lock(directory: &Path) -> std::io::Result<File> {
+    fs::create_dir_all(directory)?;
+    OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(directory.join(".database-lock"))
+}
+
+fn try_workspace_lock(lock: &File) -> anyhow::Result<()> {
+    lock.try_lock_exclusive().map_err(|error| {
+        if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() {
+            WorkspaceBusy(error).into()
+        } else {
+            error.into()
+        }
+    })
+}
+
+async fn wait_for_workspace_lock(lock: &File) -> anyhow::Result<()> {
+    let busy = match try_workspace_lock(lock) {
+        Err(error) if error.is::<WorkspaceBusy>() => error,
+        result => return result,
+    };
+    tracing::info!("Waiting for the workspace lock to be released");
+    let retry = async {
+        loop {
+            tokio::time::sleep(WORKSPACE_LOCK_RETRY).await;
+            match try_workspace_lock(lock) {
+                Err(error) if error.is::<WorkspaceBusy>() => continue,
+                result => return result,
+            }
+        }
+    };
+    tokio::time::timeout(WORKSPACE_LOCK_WAIT, retry)
+        .await
+        .unwrap_or(Err(busy))
+}
+
 impl Storage {
     pub async fn inspect(directory: PathBuf) -> anyhow::Result<Arc<Self>> {
-        fs::create_dir_all(&directory)?;
-        let process_lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(directory.join(".database-lock"))?;
-        process_lock
-            .try_lock_exclusive()
-            .context("This workspace is already open in another Netrix process")?;
+        let process_lock = open_workspace_lock(&directory)?;
+        try_workspace_lock(&process_lock)?;
+        Self::inspect_locked(directory, process_lock).await
+    }
+
+    pub async fn inspect_on_startup(
+        directory: PathBuf,
+        stop: &CancellationToken,
+    ) -> anyhow::Result<Option<Arc<Self>>> {
+        if stop.is_cancelled() {
+            return Ok(None);
+        }
+        let process_lock = open_workspace_lock(&directory)?;
+        tokio::select! {
+            biased;
+            _ = stop.cancelled() => return Ok(None),
+            result = wait_for_workspace_lock(&process_lock) => result?,
+        }
+        if stop.is_cancelled() {
+            return Ok(None);
+        }
+        Self::inspect_locked(directory, process_lock)
+            .await
+            .map(Some)
+    }
+
+    async fn inspect_locked(directory: PathBuf, process_lock: File) -> anyhow::Result<Arc<Self>> {
         let path = directory.join("database.db");
         let envelope = read_envelope(&directory)?;
         let mode = if !path.exists() || fs::metadata(&path)?.len() == 0 {

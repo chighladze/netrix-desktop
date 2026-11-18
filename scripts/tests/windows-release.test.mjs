@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { assertNoRedistributable, parseDependencies } from '../lib/windows-binaries.mjs';
+import { assertNoRedistributable, assertWindowsX64, parseDependencies } from '../lib/windows-binaries.mjs';
 
 test('dependency inspection rejects normal and delayed Visual C++ runtime imports', () => {
   const output = 'Image has the following dependencies:\n    KERNEL32.dll\n    api-ms-win-crt-runtime-l1-1-0.dll\n' +
@@ -18,6 +18,18 @@ test('dependency inspection rejects normal and delayed Visual C++ runtime import
   }
   assert.doesNotThrow(() => assertNoRedistributable(['kernel32.dll', 'ucrtbase.dll', 'api-ms-win-crt-runtime-l1-1-0.dll'], 'fixture.exe'));
   assert.throws(() => parseDependencies('LINK : fatal error LNK1107'), /inspection failed/);
+});
+
+test('Windows release checks reject a truncated or wrong-architecture payload', () => {
+  const bytes = Buffer.alloc(72);
+  bytes.write('MZ');
+  bytes.writeUInt32LE(64, 0x3c);
+  bytes.writeUInt32LE(0x4550, 64);
+  bytes.writeUInt16LE(0x8664, 68);
+  assert.doesNotThrow(() => assertWindowsX64(bytes, 'x64.exe'));
+  bytes.writeUInt16LE(0xaa64, 68);
+  assert.throws(() => assertWindowsX64(bytes, 'arm64.exe'), /expected Windows x64/);
+  assert.throws(() => assertWindowsX64(bytes.subarray(0, 67), 'truncated.exe'), /Missing PE header/);
 });
 
 test('Windows release validation and draft publication fail closed', { skip: process.platform !== 'win32' }, () => {

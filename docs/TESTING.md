@@ -1,6 +1,67 @@
 # Testing
 
-Startup failure regression checks:
+## Sidecar lifecycle
+
+```powershell
+cargo test --locked --manifest-path backend-rs/Cargo.toml --test sidecar_lifecycle_tests
+cargo test --locked --manifest-path backend-rs/Cargo.toml --lib shutdown
+npm run test:tauri
+npm run test:run --prefix frontend -- AppSecurityBoundary appClose
+npm run check
+```
+
+The backend tests cover EOF before profile initialization, release of the port
+and workspace lock, persistence across restart and shutdown with an active
+WebSocket/Telnet bridge. They check unauthenticated readiness, SFTP cancellation
+with a pending commit and rejection of new work during shutdown. Real lock
+contention covers successful wait, EOF cancellation and `workspace_busy` at
+15 seconds. Tauri tests cover forced termination past the grace period. Vitest
+covers early main-window close, confirmation and detached-window close.
+
+```powershell
+npm run test:e2e:desktop:build -- --lifecycle
+```
+
+This Windows test requires an interactive desktop, WebView2, loopback access
+and PowerShell 7. It launches a hash-verified `com.netrix.e2e.*` build with its
+own WebView data folder. It checks normal close from the lock screen, detached
+terminal and map capabilities, termination of the shell PID and immediate
+unlock after restart, backend process loss and launch failure. A separate test
+parent holds the private pipe without a Netrix Job Object and is terminated to
+exercise EOF fallback. The test checks actual child PIDs and listener release.
+The build-based test uses the debug sidecar path. For a local installed smoke,
+build with a `com.netrix.e2e.<32 hex digits>` identifier and unique product
+and main executable names. Install only that QA product. Point
+`NETRIX_E2E_BUILD_ROOT` at a directory with `build.json` in the existing E2E
+manifest format, using the installed shell and sibling sidecar paths and hashes.
+Run `node scripts/sidecar-desktop-smoke.mjs --installed`. The debug-only missing
+sidecar override is skipped for an installed build. Run the full installed
+candidate matrix separately for clean-machine dependencies and signatures. See the
+[installed-build checks](build_instructions.md#verify-an-installed-build).
+
+```powershell
+npm run build:sidecar:debug
+cargo test --locked --manifest-path src-tauri/Cargo.toml backend_process::restart_tests::restart_waits_for_the_previous_sidecar_when_job_assignment_is_denied -- --exact --ignored --nocapture
+```
+
+The native test supplies a Job handle without assignment rights to the real
+supervisor. It expects Windows error 5, stalls a request and kills the supervisor.
+The replacement must wait for the old lock, reopen the workspace and read the
+committed row with the original lock-file bytes preserved. See [Windows Job assignment](https://learn.microsoft.com/en-us/windows/win32/api/jobapi2/nf-jobapi2-assignprocesstojobobject).
+
+## Problem reporting
+
+```powershell
+npm run test:run --prefix frontend -- src/features/feedback src/components/HelpCenterModal.test.tsx src/features/security/AppSecurityBoundary.test.tsx src/App.navigation.test.tsx --maxWorkers=2
+cargo test --locked --manifest-path src-tauri/Cargo.toml problem_report::tests
+```
+
+Tests cover safe fields, the fixed GitHub form, URL encoding, long reports,
+preview, clipboard and IPC failures, and access from Help and the startup gate.
+Check the form at narrow sizes, keyboard focus and prefill without submitting
+an issue.
+
+## Startup diagnostics
 
 ```powershell
 cargo test --locked --manifest-path backend-rs/Cargo.toml --bin netrix_backend startup_diagnostics::tests
@@ -9,28 +70,32 @@ cargo test --locked --manifest-path src-tauri/Cargo.toml backend_diagnostics::te
 npm run test:run --prefix frontend -- src/api.test.ts src/features/security/AppSecurityBoundary.test.tsx --maxWorkers=2
 ```
 
-These checks distinguish generic exit 1 from Windows missing-DLL/crash statuses,
-preserve safe backend startup causes through process termination, reject raw or
-secret-bearing diagnostic records, and exercise recovery/copy/confirmed-close
-controls and fail-closed behavior after a running backend exits. Frontend checks
-also reject a late successful unlock response after a confirmed process failure.
-The backend integration test launches the actual backend with a UUID-scoped disposable invalid data path
-and a deadline; it never opens the user's workspace. Visual QA should inspect a
-missing-library case and an unknown-cause case at normal and narrow window sizes,
-including expanded diagnostic details. No prerequisite is uninstalled to simulate
-the failure.
+Tests distinguish generic exit 1 from Windows loader and crash statuses. They
+verify allowlisted diagnostics, recovery controls and a workspace that remains
+locked even if an unlock response arrives after confirmed failure. Manual UI
+checks cover missing-library and unknown-cause messages at normal and narrow
+sizes.
+
+## Installer and payload checks
 
 Windows installer changes require `npm run test:scripts`, `npm run check:tauri`
 and `npm run test:tauri`. After a Tauri build has installed the NSIS toolchain,
 `npm run test:installer` compiles the production runtime hook with harmless native
-fixtures and exercises available, missing/repaired, installer-failed,
-still-unavailable and unexpected-probe-failure cases. It never runs Netrix or the
+fixtures and exercises eight scenarios: available, missing/repaired,
+installer-failed, still-unavailable, unexpected probe exit, probe timeout,
+unexpected exit after repair and an invalid executable that cannot launch.
+Launch errors, timeouts and unexpected exits must report that runtime availability
+was not determined; they must not claim WebView2 is missing. This does not emulate
+Smart App Control enforcement. The test never runs Netrix or the
 Microsoft installer, writes only its isolated temporary directory, and deletes
 only that directory. `npm run check:windows:binaries` then checks both actual
 release EXEs with dumpbin, rejects redistributable DLL imports (including delayed
-ones), verifies sidecar staging hashes and exercises the read-only WebView2 probe.
-Both commands are required by `release:check`. Clean-machine, offline and
-stale-registration QA remain separate manual checks in the installer test plan.
+ones) and verifies PE architecture, sidecar staging hashes and the NSIS payload
+source. It exercises the read-only WebView2 probe.
+Both commands are required by `release:check`. Run the
+[installed-build checks](build_instructions.md#verify-an-installed-build) for clean-profile and offline acceptance.
+
+## UI and workspace regression checks
 
 Shared form styling is verified with frontend typecheck/build and the existing modal and module tests. `QuickActionModal.test.tsx` covers footer submission with unchanged command text, edited metadata and explicit delete/cancel behavior. For visual QA, check dialogs at 1280×800 and 460×560: 12px corners, no horizontal overflow, visible footer actions and internally scrollable fields. Check Connections and Settings at narrower content widths as well as desktop width; keep circular switches and status indicators intact.
 
@@ -39,12 +104,10 @@ Shared form styling is verified with frontend typecheck/build and the existing m
 Whole-database encryption has focused unit tests in `database_encryption.rs` and
 an authenticated startup/rotation/reset/restart test in `startup.rs`:
 
-The startup fixture retains its test-only pool handle, aborts the monitor and
-awaits `SqlitePool::close()` before restart or process exit. A scheduler yield is
-not a database-worker shutdown barrier. Final temporary-directory removal must
-succeed on Windows. `STATUS_ACCESS_VIOLATION` after a passing test summary is a
-failed test run, not a successful release check; the release workflow collects
-an LLDB backtrace when the runner provides it.
+The startup fixture runs the production workspace shutdown, awaits its pool
+close before reopening the profile and checks that the temporary directory can
+be removed on Windows. An access violation after a passing assertion summary
+fails the release gate.
 
 `AppSecurityBoundary.test.tsx` additionally checks explicit password reveal and concealment, relock clearing, Caps Lock feedback, Unicode setup length, correction of stale errors, exact existing-password submission, duplicate-submit prevention, disabled pending controls, retry focus and backend-error recovery. Visual QA uses disposable mocked startup snapshots for encrypted startup, setup, upgrade-in-progress, an existing session lock and backend failure, including a 360×480 viewport. Do not use a real workspace or master password for these UI checks.
 
@@ -131,10 +194,10 @@ Current backend coverage includes library unit tests, binary CORS tests, API int
 - Frontend build: `npm run build --prefix frontend`.
 - Frontend combined: `npm run check:frontend`.
 - Desktop startup E2E (requires a debug binary, `tauri-driver`, and platform WebDriver): `npm run test:e2e:desktop`; build and run it with `npm run test:e2e:desktop:build`.
-- Full npm dependency audits: `npm audit` and `npm audit --prefix frontend`.
+- Run `npm audit` at the root and `npm run audit:frontend` for the frontend. The frontend command requires a clean runtime audit and audits development dependencies against the scoped exception in [Security rules](SECURITY_RULES.md).
 - Backend dependency audit: `npm run audit:backend` (no blanket advisory ignores; validates the effective SQLCipher source/runtime and excludes dependencies absent from the selected target graph).
 - Tauri Windows dependency audit: `npm run audit:tauri`. It runs cargo-audit without advisory ignores, then verifies each reported lockfile package against the actual `x86_64-pc-windows-msvc` cargo tree; any Windows-active advisory fails the command.
-- Local release gate: `npm run release:check`.
+- The local `npm run release:check` runs the npm audits before compilation and packaging.
 - Before distributing a fork, record manual installer/runtime checks for the exact EXE and checksum; see `docs/build_instructions.md`.
 
 On Windows, running `npx tsc --noEmit --project frontend/tsconfig.json` from the root may prompt for the wrong `tsc` package. Prefer running `npm run typecheck` inside `frontend/` or `npm run typecheck --prefix frontend`.
@@ -144,16 +207,14 @@ On Windows, running `npx tsc --noEmit --project frontend/tsconfig.json` from the
 GitHub Actions runs the public source workflow in `.github/workflows/windows.yml`:
 
 - Frontend: Node 24.0.0 and latest 24.x, locked dependency installation, Vitest, typecheck and Vite build.
-- Windows: redacted secret scan, Rust formatting, script/backend/frontend checks,
+- Windows: redacted secret scan, frontend dependency audit, Rust formatting, script/backend/frontend checks,
   staged debug sidecar, native shell compile check and tests.
 - Manual option: build the NSIS installer, run installer-hook fixtures, inspect
   native dependencies, hash the EXE and retain an unsigned Actions artifact.
 
-Dependency audits and desktop GUI acceptance are available as local scripts but
-are not implied by a green public source CI run. The existing unsigned beta's
-manual-testing limitations still apply.
-
-The public Windows workflow checks source and native tests. Its manual installer option builds an unsigned artifact after these checks; see [the build guide](build_instructions.md). Published installer acceptance remains documented in the [release notes](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.8).
+Run the Rust dependency audits and desktop GUI checks locally. The
+[Windows release notes](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.9)
+record the runtime checks for the distributed EXE.
 
 The Windows script suite probes the actual release-command runtime for PowerShell 7 and `Get-FileHash`, hashes a non-executable fixture with a space/bracket filename against an independently calculated SHA-256, and rejects multiple installer files. It does not install or launch an application.
 
@@ -166,9 +227,7 @@ The Windows script suite probes the actual release-command runtime for PowerShel
 - Manually test terminal session lifecycle with `docs/TERMINAL_LIFECYCLE_TEST_PLAN.md` when touching `TerminalCanvas`, `/ws/*`, or `SessionManager`.
 - Manually test SFTP and Files with `docs/SFTP_FILES_TEST_PLAN.md` when touching `SftpBrowser`, `/sftp/*`, `ssh::sftp`, host credentials, or terminal/SFTP coexistence.
 - Manually test Vault with `docs/VAULT_TEST_PLAN.md` when touching vault APIs, host credential storage, vault settings, OS keychain behavior, or terminal/SFTP credential loading.
-- Manually test installer/runtime behavior with `docs/INSTALLER_RUNTIME_TEST_PLAN.md` before publishing Windows installer artifacts.
-- Record the final per-release manual QA pass/fail table in `docs/RELEASE_QA.md` before publishing.
-- Use `docs/BETA_READINESS.md` as the final public-beta go/no-go checklist.
+- Verify the installed build in a disposable profile and record results alongside the EXE's SHA-256 before distributing it. Follow the [build guide](build_instructions.md#verify-an-installed-build).
 
 ## Coverage Gaps
 
@@ -234,7 +293,7 @@ Hosts folder-browser regressions cover subtree navigation/breadcrumbs, empty fol
 
 ## Medium regressions and release validation
 
-The public Windows workflow checks source and native tests. Its manual installer option builds an unsigned artifact after these checks; see [the build guide](build_instructions.md). Published installer acceptance remains documented in the [release notes](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.8).
+For a local unsigned installer, follow the [Windows build guide](build_instructions.md).
 
 `npm run check` includes `npm run test:scripts` (Node built-in tests), backend check/clippy/tests and frontend tests/typecheck/build. `npm run test:tauri` runs the native shell tests, including UUID-scoped Credential Manager roundtrips; Windows CI and `release:check` require it. No real keychain entry is used by native tests.
 

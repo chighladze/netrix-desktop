@@ -5,7 +5,7 @@
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{Path, Query, State, WebSocketUpgrade};
 use axum::http::{header::SEC_WEBSOCKET_PROTOCOL, HeaderMap};
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
@@ -17,6 +17,8 @@ use crate::error::{AppError, AppResult};
 use crate::models::Host;
 use crate::ssh::manager::{SessionEvent, SessionHandle, SessionReplay};
 use crate::ssh::saved_host;
+use crate::ssh::SessionManager;
+use futures::future::BoxFuture;
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use std::time::Duration;
 
@@ -37,6 +39,28 @@ struct ResumeQuery {
     after: Option<u64>,
 }
 
+fn cancellable_upgrade(
+    ws: WebSocketUpgrade,
+    sessions: SessionManager,
+    handler: impl for<'a> FnOnce(&'a mut WebSocket) -> BoxFuture<'a, ()> + Send + 'static,
+) -> Response {
+    // Register in the HTTP handler, so a pending upgrade cannot escape the
+    // post-HTTP shutdown sweep. A failed upgrade drops this token too.
+    let (pending, stop) = sessions.track_socket();
+    ws.on_upgrade(move |mut socket| async move {
+        let _pending = pending;
+        tokio::select! {
+            biased;
+            _ = stop.cancelled() => {
+                // Reserve shutdown time for transports and SQLite even if the
+                // renderer has stopped reading its WebSocket.
+                let _ = tokio::time::timeout(Duration::from_millis(500), socket.send(Message::Close(None))).await;
+            }
+            _ = handler(&mut socket) => {}
+        }
+    })
+}
+
 /// Reattachment is resume-only: it cannot load credentials or create a
 /// replacement connection, even if the saved host was edited/deleted meanwhile.
 async fn ws_resume_upgrade(
@@ -52,34 +76,36 @@ async fn ws_resume_upgrade(
     } else {
         ws
     };
-    ws.on_upgrade(move |mut socket| async move {
-        let Ok(guard) = st.sessions.workspace_gate().try_read_owned() else {
-            send_ws_error_and_close(&mut socket, "Workspace restore is in progress.", false).await;
-            return;
-        };
-        resume_ws_session(socket, st, session_id, q.after, guard).await;
+    cancellable_upgrade(ws, st.sessions.clone(), move |socket| {
+        Box::pin(async move {
+            let Ok(guard) = st.sessions.workspace_gate().try_read_owned() else {
+                send_ws_error_and_close(socket, "Workspace restore is in progress.", false).await;
+                return;
+            };
+            resume_ws_session(socket, st, session_id, q.after, guard).await;
+        })
     })
 }
 
 async fn resume_ws_session(
-    mut ws: WebSocket,
+    ws: &mut WebSocket,
     st: AppState,
     session_id: i64,
     after: Option<u64>,
     workspace_guard: tokio::sync::OwnedRwLockReadGuard<()>,
 ) {
     let Some(handle) = st.sessions.get(session_id).await else {
-        send_session_unavailable(&mut ws).await;
+        send_session_unavailable(ws).await;
         return;
     };
     st.sessions.attach_client(&handle).await;
     drop(workspace_guard);
     if !st.sessions.resume_live(&handle).await {
-        send_session_unavailable(&mut ws).await;
+        send_session_unavailable(ws).await;
         st.sessions.finish_client(&handle, false).await;
         return;
     }
-    let terminate = bridge_ws_session(&mut ws, &st, &handle, session_id, after, false).await;
+    let terminate = bridge_ws_session(ws, &st, &handle, session_id, after, false).await;
     st.sessions.finish_client(&handle, terminate).await;
 }
 
@@ -405,7 +431,7 @@ async fn send_ws_disconnect_and_close<S: Sink<Message> + Unpin>(ws: &mut S, mess
 }
 
 async fn run_ws_session(
-    mut ws: WebSocket,
+    ws: &mut WebSocket,
     st: AppState,
     host_info: serde_json::Value,
     workspace_guard: tokio::sync::OwnedRwLockReadGuard<()>,
@@ -429,7 +455,7 @@ async fn run_ws_session(
                     Some(Ok(Message::Binary(data))) => {
                         if st.security.is_locked() { pending_input.clear(); continue; }
                         if pending_input.len() + data.len() > 64 * 1024 {
-                            send_ws_error_and_close(&mut ws, "Too much terminal input before the connection is ready.", false).await;
+                            send_ws_error_and_close(ws, "Too much terminal input before the connection is ready.", false).await;
                             break None;
                         }
                         pending_input.extend_from_slice(&data);
@@ -442,7 +468,7 @@ async fn run_ws_session(
                                 TerminalControl::Detach => break None,
                                 TerminalControl::Heartbeat { sent_at } => {
                                     let reply = format!("__JSON__{}", serde_json::json!({"type":"pong", "sent_at":sent_at}));
-                                    if !send_frame(&mut ws, Message::Text(reply.into())).await { break None; }
+                                    if !send_frame(ws, Message::Text(reply.into())).await { break None; }
                                 }
                                 _ => {}
                             }
@@ -461,7 +487,7 @@ async fn run_ws_session(
     };
     if let Err(err_msg) = result {
         send_ws_error_and_close(
-            &mut ws,
+            ws,
             &format!("Connection failed: {}", user_facing_connect_error(&err_msg)),
             false,
         )
@@ -483,12 +509,11 @@ async fn run_ws_session(
             Ok(Ok(()))
         )
     {
-        send_ws_disconnect_and_close(&mut ws, "Remote terminal session is not accepting input.")
-            .await;
+        send_ws_disconnect_and_close(ws, "Remote terminal session is not accepting input.").await;
         st.sessions.finish_client(&handle, true).await;
         return;
     }
-    run_attached_bridge(&mut ws, &st, &handle, session_id, true).await;
+    run_attached_bridge(ws, &st, &handle, session_id, true).await;
 }
 
 pub(crate) async fn run_attached_bridge<S>(
@@ -728,7 +753,9 @@ async fn ws_upgrade(
     } else {
         ws
     };
-    ws.on_upgrade(move |socket| handle_host_ws(socket, st, host_id, q))
+    cancellable_upgrade(ws, st.sessions.clone(), move |socket| {
+        Box::pin(handle_host_ws(socket, st, host_id, q))
+    })
 }
 
 async fn ws_quick_upgrade(
@@ -743,13 +770,15 @@ async fn ws_quick_upgrade(
     } else {
         ws
     };
-    ws.on_upgrade(move |socket| handle_quick_ws(socket, st, q))
+    cancellable_upgrade(ws, st.sessions.clone(), move |socket| {
+        Box::pin(handle_quick_ws(socket, st, q))
+    })
 }
 
-async fn handle_host_ws(mut ws: WebSocket, st: AppState, host_id: i64, q: WsQuery) {
+async fn handle_host_ws(ws: &mut WebSocket, st: AppState, host_id: i64, q: WsQuery) {
     let Ok(workspace_guard) = st.sessions.workspace_gate().try_read_owned() else {
         send_ws_error_and_close(
-            &mut ws,
+            ws,
             "Workspace restore is in progress. Refresh the host list and reconnect.",
             false,
         )
@@ -768,12 +797,12 @@ async fn handle_host_ws(mut ws: WebSocket, st: AppState, host_id: i64, q: WsQuer
         Ok(Some(h)) => h,
         Ok(None) => {
             warn!("[WS host={host_id}] Host not found");
-            send_ws_error_and_close(&mut ws, "Host not found", false).await;
+            send_ws_error_and_close(ws, "Host not found", false).await;
             return;
         }
         Err(e) => {
             error!("[WS host={host_id}] Database error: {e}");
-            send_ws_error_and_close(&mut ws, "Database error", false).await;
+            send_ws_error_and_close(ws, "Database error", false).await;
             return;
         }
     };
@@ -782,7 +811,7 @@ async fn handle_host_ws(mut ws: WebSocket, st: AppState, host_id: i64, q: WsQuer
         Ok(credentials) => credentials,
         Err(error) => {
             let vault_locked = matches!(&error, AppError::Unauthorized(_));
-            send_ws_error_and_close(&mut ws, &error.to_string(), vault_locked).await;
+            send_ws_error_and_close(ws, &error.to_string(), vault_locked).await;
             return;
         }
     };
@@ -824,10 +853,10 @@ async fn handle_host_ws(mut ws: WebSocket, st: AppState, host_id: i64, q: WsQuer
     run_ws_session(ws, st, host_info, workspace_guard).await;
 }
 
-async fn handle_quick_ws(mut ws: WebSocket, st: AppState, q: QuickWsQuery) {
+async fn handle_quick_ws(ws: &mut WebSocket, st: AppState, q: QuickWsQuery) {
     let Ok(workspace_guard) = st.sessions.workspace_gate().try_read_owned() else {
         send_ws_error_and_close(
-            &mut ws,
+            ws,
             "Workspace restore is in progress. Refresh the host list and reconnect.",
             false,
         )
@@ -840,7 +869,7 @@ async fn handle_quick_ws(mut ws: WebSocket, st: AppState, q: QuickWsQuery) {
             None => {
                 warn!("[WS quick-connect] Missing or expired ticket");
                 send_ws_error_and_close(
-                    &mut ws,
+                    ws,
                     "Quick-connect ticket is missing, expired, or already used. Start the connection again.",
                     false,
                 )
@@ -852,7 +881,7 @@ async fn handle_quick_ws(mut ws: WebSocket, st: AppState, q: QuickWsQuery) {
         if quick_connect_has_query_credentials(&q.params) {
             warn!("[WS quick-connect] Rejected credentials in query string");
             send_ws_error_and_close(
-                &mut ws,
+                ws,
                 "Quick-connect credentials must be sent through a one-time ticket, not the WebSocket URL.",
                 false,
             )
@@ -863,7 +892,7 @@ async fn handle_quick_ws(mut ws: WebSocket, st: AppState, q: QuickWsQuery) {
         match build_quick_connect_target(q.params) {
             Ok(target) => target,
             Err(message) => {
-                send_ws_error_and_close(&mut ws, &message, false).await;
+                send_ws_error_and_close(ws, &message, false).await;
                 return;
             }
         }

@@ -1,16 +1,40 @@
 # Security Rules and Review
 
+## User-reviewed problem reports
+
+`get_problem_report_diagnostics` reads the shell's in-memory backend state and
+numeric Windows OS version/build, without backend HTTP, workspace access or log
+reads. Its dedicated DTO contains only app version, OS/build, architecture,
+backend phase, an allowlisted reason, and numeric exit/signal/OS codes. It excludes
+the existing local-only failure message, display details and log path. The renderer
+also selects and validates these fields instead of serializing arbitrary IPC data.
+
+`open_problem_report` only opens the exact HTTPS GitHub new-issue URL for
+`chighladze/netrix-releases`, with `bug-report.yml` and allowlisted, nonduplicate
+query fields, no fragment and a 7,000-byte maximum. It grants no general URL,
+file, executable or shell-opening capability. The command reuses the installed
+shell plugin; no GitHub token or issue-creation API is embedded in the app.
+Both commands are granted to `main`, `detached-*` and `map-*`, since each has the
+shared startup failure screen. Map windows additionally receive clipboard write
+permission for explicit report copying, but no clipboard read permission.
+
+Reports remain component-local until the user's explicit Copy or Open GitHub
+action after preview. Opening the browser transmits the previewed fields in a
+URL, which may remain in browser history; GitHub requires sign-in and a separate
+Submit action to publish. UI copy explains that submissions are public and that
+users must remove sensitive information from their own text. No screenshots,
+terminal content, logs or workspace files are automatically attached. Long encoded
+reports retain their full copyable preview and use an explicitly described manual
+paste fallback rather than silently truncating content. Normal-workspace reports
+close when the workspace becomes blocked; the startup report is nested in the
+security gate and never mounts or unlocks protected content.
+
 Startup diagnostics cross the existing `get_backend_status` IPC only as fixed
 allowlisted reason codes/messages, numeric OS/exit codes, recovery text and the
-local log path. The shell parses bounded `NETRIX_STARTUP_FAILURE:` records from
-its own sidecar; unknown fields/codes and arbitrary stderr are excluded from the
-frontend/copy action. The session API token is redacted from captured stderr and
-process-stream errors before local logging. No new Tauri permissions, telemetry,
-automatic dependency installation, workspace reset or credential fields are
-introduced. A confirmed process failure keeps the existing security boundary
-closed, including already-mounted sessions.
-A confirmed failed sidecar is latched for the renderer lifetime: late unlock or
-status responses cannot reopen protected content or erase its failure diagnosis.
+local log path. The shell takes structured records from its own sidecar and
+redacts the session token from captured stderr before local logging. The
+renderer keeps protected content hidden after a confirmed process failure,
+including when an earlier unlock or status response arrives late.
 
 Windows setup uses a fixed `--check-webview2` shell mode that exits before Tauri
 initialization, profile migration, logging, credential access or sidecar startup.
@@ -50,8 +74,10 @@ Folder rename/move uses the existing token-authenticated and application-lock-pr
 - CORS is restricted to exact localhost, 127.0.0.1, tauri.localhost, and Tauri origins.
 - Tauri CSP disallows `unsafe-eval`; `unsafe-inline` remains for current inline style usage.
 - Backend sidecar spawning is Rust-owned. Webviews receive no shell open/execute/spawn/stdin permissions.
-- Tauri app commands and core/plugin permissions are split by window label. Only `main` has generic webview creation and keychain access. Detached terminals receive clipboard access and the fixed-purpose terminal opener documented below; detached maps receive neither capability.
-- Only the trusted `main` window receives the `quit_app` command used by the title-bar close flow. Detached terminal and map windows retain per-window close behavior and cannot terminate the full application.
+- The backend announces its already-bound `127.0.0.1` port on private stdout. The shell requires authenticated HTTP 200 from `/health` before exposing readiness. The token stays in stdin, IPC and HTTP header or WebSocket subprotocol transport.
+- The shell keeps the Windows Job handle non-inheritable and uses the child process handle for assignment before delivering the token. EOF on the anonymous pipe also detects shell exit if Job setup fails.
+- Whole-app exit uses `quit_app`, whose capability and Rust caller check both require `main`. Detached windows close individually. There is no backend HTTP shutdown route.
+- Tauri app commands and plugin permissions are split by window label. Only `main` has generic webview creation and keychain access. Detached terminals use the fixed-purpose terminal opener documented below.
 - Detached terminals alone receive `close_terminal_window`. It takes the calling `WebviewWindow` from Tauri, verifies its detached label and destroys only that window; no target label argument or generic `allow-destroy` permission is exposed. This completes an acknowledged handoff/native-close transaction without granting authority over the main window. Main adds read-only `inner-position`/`is-minimized` access for measured dock targets; detached terminals add read-only cursor-position access. No shell, credential-store, filesystem or network permissions are expanded.
 - Main and detached terminal windows receive `wait_terminal_drag_release(gestureId)` and `cancel_terminal_drag(gestureId)`, both restricted again to the native calling window and a UUID gesture. On Windows the observer reads only the fixed left mouse button/Escape states for at most 120 seconds and returns release/cancel status with one physical cursor point at release. Only one observer per source window is active; replacement, cancellation and a bounded list of ended gestures prevent late IPC from reviving old observers. Cancellation cannot stop another window's observer or a newer gesture. These commands accept no key codes or target windows, generate no OS input and record no input history. Maps/preview windows receive neither permission. This provides a fallback when capture changes or the native move loop consumes pointerup. Touch, synthetic gestures and unsupported platforms retain their DOM event path. Existing cursor geometry access is unchanged.
 - Pane docking adds read-only `terminal_dock_target` to main/detached-terminal capabilities, and read-only `inner-position`/`is-minimized` to detached terminals. Windows checks visible top-level geometry in z-order, skipping only the source when requested and app-owned drag previews; a foreign window occludes the destination. It returns only a main/detached-terminal label, never foreign window metadata, text or handles. Maps/preview webviews receive no new IPC permissions. Non-Windows falls back to app-owned visible-window geometry. Detached connection pickers do not read or save remembered Vault passwords; manual unlock uses existing authenticated HTTP. These geometry permissions grant no window creation, keychain, filesystem, network or input-generation access.
@@ -190,7 +216,21 @@ Revalidated on 2026-11-08 after compatible lockfile updates and the russh upgrad
 - The same `RUSTSEC-2023-0071` also appears for `rsa 0.9.10` through `sqlx-mysql` in `Cargo.lock`. This is treated as an audit false positive for the active backend build: SQLx default features are disabled, Netrix uses SQLite only, and `cargo tree -i sqlx-mysql` / `cargo tree -i rsa@0.9.10` return no active dependency path.
 - Backend retains unmaintained-package warnings for `serial` (portable-pty) and `pin-utils`; these are distinct from vulnerability findings.
 - The Tauri lockfile now has zero vulnerability entries across targets and five informational warnings. `quick-xml` is 0.42.0; the former 0.39.x path is gone. `npm run audit:tauri` still checks the active Windows graph without advisory ignores. Linux support still requires platform-specific review/testing.
-- `npm audit --prefix frontend` reports zero vulnerabilities, including development dependencies (`vite 6.4.5`, `vitest 4.1.12`). This is a dated audit result, not a guarantee against future advisories.
+- The 2026-11-08 frontend audit reported zero vulnerabilities with `vite 6.4.5` and `vitest 4.1.12`.
+
+On 2026-11-18 the full frontend audit reported one picomatch advisory and its
+affected parent packages. The npm registry had no patched release. The locked
+picomatch 2.3.2 and 4.0.7 copies run in development, build and test tooling.
+The desktop installer ships the Vite output, and the production dependency
+audit reported zero vulnerabilities. Release builds use glob patterns from
+the checked-in source and build configuration. [Picomatch advisory](https://github.com/advisories/GHSA-fc5q-39xc-vjpf)
+
+`npm run audit:frontend` requires a clean production audit and then runs the
+full development-inclusive audit. The exception applies to this advisory for
+the reviewed transitive picomatch versions and parents whose reported lockfile
+entries are all marked dev-only. Other findings, new affected versions, runtime
+dependencies, or a failed audit response fail the gate. Remove the exception
+after the locked toolchain picks up a patched release.
 
 ## SQL Safety
 

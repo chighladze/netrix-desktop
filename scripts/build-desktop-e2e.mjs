@@ -33,4 +33,5 @@ const backend = path.join(backendTarget, "debug", `netrix_backend${extension}`);
 const manifest = { version: 1, identifier, binary, backend, binary_sha256: await fileHash(binary), backend_sha256: await fileHash(backend) };
 await writeFile(path.join(buildRoot, "build.json"), JSON.stringify(manifest, null, 2));
 console.log(`Verified E2E build: ${identifier}`);
-await run(process.execPath, [path.join(root, "scripts/desktop-e2e.mjs")], { env: { ...process.env, NETRIX_E2E_BUILD_ROOT: buildRoot } });
+const testScript = process.argv.includes("--lifecycle") ? "sidecar-desktop-smoke.mjs" : "desktop-e2e.mjs";
+await run(process.execPath, [path.join(root, "scripts", testScript)], { env: { ...process.env, NETRIX_E2E_BUILD_ROOT: buildRoot } });

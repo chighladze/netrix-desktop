@@ -1,12 +1,16 @@
 # Frontend Structure
 
-`BackendFailurePanel` displays the shell's startup/process failure diagnosis,
-recovery steps and expandable, copyable details with the local log location.
-`AppSecurityBoundary` uses this view after failed readiness or a confirmed backend
-exit during lock polling; transient connection errors retain their retry flow.
-Fatal failures offer a confirmed app exit rather than reloading a renderer that
-cannot restart a dead sidecar. This presentation state is component-local;
-Zustand's existing security error keeps all protected content hidden.
+`ReportProblemModal` is available from Help and the startup failure views. It
+previews local drafts before opening the GitHub form. `problemReport.ts` selects
+allowlisted shell diagnostics and encodes the form fields. A three-second IPC
+deadline preserves the manual report flow. Long links fall back to a copyable
+draft. Closing the dialog discards its state. Workspace drafts also close on lock
+or security error.
+
+`AppSecurityBoundary` shows `BackendFailurePanel` after failed readiness or a
+confirmed exit. It offers recovery guidance, copyable diagnostics and a confirmed
+close. Transient connection errors keep the retry flow. Zustand's security error
+keeps protected content hidden.
 
 `AppSecurityBoundary` also owns the pre-database password gate. Backend snapshots
 identify setup, legacy encryption, encrypted startup or an open database in the
@@ -17,6 +21,12 @@ failure states, since `App` cannot show it before mounting. Polling remains acti
 during long conversion, and another window sees that work in progress. An encrypted
 startup has already verified the master password, so `App` skips the old remembered
 vault startup policy rather than immediately relocking the just-opened vault.
+
+The boundary handles main-window close requests while startup is pending or the
+workspace is blocked. The existing lock-screen confirmation leads to `quit_app`.
+The unlocked workspace shares its terminal close policy with the custom title
+bar. After a confirmed service failure, a detached title bar can close its own
+window using the terminal or map close path.
 
 The workspace gate uses `features/security/security.css` for its responsive graphite card, scoped password focus styles, progress, error and backend-retry states. Password reveal and Caps Lock feedback are transient component state. Setup shows the existing minimum-length and confirmation requirements; ordinary unlock accepts the exact existing password without applying setup requirements.
 

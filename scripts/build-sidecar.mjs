@@ -17,7 +17,10 @@ if (target.endsWith('-windows-msvc')) {
     env.RUSTFLAGS = `${env.RUSTFLAGS || ''} -C target-feature=+crt-static`.trim();
   }
 }
+// Shell builds can use a custom Cargo target dir. Always build the sidecar
+// into the directory that prepare-sidecar reads so it cannot stage stale code.
 execFileSync('cargo', ['build', '--release', '--locked', '--target', target,
+  '--target-dir', path.join(root, 'backend-rs', 'target'),
   '--manifest-path', 'backend-rs/Cargo.toml'], { cwd: root, env, stdio: 'inherit', windowsHide: true });
 execFileSync(process.execPath, ['scripts/prepare-sidecar.mjs', 'release'], {
   cwd: root, env, stdio: 'inherit', windowsHide: true,
