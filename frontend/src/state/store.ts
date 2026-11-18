@@ -310,6 +310,7 @@ interface AppState extends HostsActions {
   setTerminalLayout: (layout: "single" | "columns" | "rows" | "grid") => void;
   maximizeTerminalPane: (tabId: string) => void;
   activeView: 'hosts' | 'terminal' | 'snippets' | 'settings' | 'utilities' | 'network-map' | 'files' | 'connections';
+  connectionsTab: "credentials" | "import" | "backups" | "known" | "tunnels";
 
   // Persistence for terminal sessions
   terminalInstances: Record<string, Terminal>;
@@ -399,7 +400,7 @@ interface AppState extends HostsActions {
   addTerminalTab: (host: Host, sessionId?: number) => string;
   removeTerminalTab: (tabId: string, options?: { preserveSession?: boolean }) => Promise<boolean>;
   setActiveTabId: (tabId: string | null) => void;
-  setActiveView: (view: 'hosts' | 'terminal' | 'snippets' | 'settings' | 'utilities' | 'network-map' | 'files' | 'connections') => void;
+  setActiveView: (view: AppState["activeView"], connectionsTab?: AppState["connectionsTab"]) => void;
   updateTabConnection: (tabId: string, isConnected: boolean) => void;
   // reorderTerminalTabs moved to UI actions section above
 
@@ -634,6 +635,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     state.setTerminalGroup({ ...group, activeTabId: tabId, layout: "single" });
   },
   activeView: "hosts",
+  connectionsTab: "credentials",
   terminalInstances: {},
   terminalSockets: {},
   sessionIds: {},
@@ -1342,9 +1344,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
   
-  setActiveView: (view) => set((state) => {
+  setActiveView: (view, connectionsTab) => set((state) => {
     if (view !== "terminal" && Object.values(state.terminalTransfers).some((transfer) => transfer.direction === "incoming")) return {};
-    return { activeView: view, pendingTerminalGroupId: view === "hosts" ? state.pendingTerminalGroupId : null, pendingTerminalPaneIndex: view === "hosts" ? state.pendingTerminalPaneIndex : null };
+    return {
+      activeView: view,
+      connectionsTab: connectionsTab ?? (view === state.activeView ? state.connectionsTab : "credentials"),
+      pendingTerminalGroupId: view === "hosts" ? state.pendingTerminalGroupId : null,
+      pendingTerminalPaneIndex: view === "hosts" ? state.pendingTerminalPaneIndex : null,
+    };
   }),
 
   // Network Map tab persistence

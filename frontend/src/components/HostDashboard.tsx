@@ -65,6 +65,7 @@ const HostDashboard: React.FC<HostDashboardProps> = ({ onConnect, onOpenFiles, o
     isLoading,
     error,
     setSelectedHost,
+    setActiveView,
     hostsViewMode,
     setHostsViewMode,
     hostsPreferences,
@@ -92,6 +93,7 @@ const HostDashboard: React.FC<HostDashboardProps> = ({ onConnect, onOpenFiles, o
       isLoading: state.hostsLoading,
       error: state.hostsError,
       setSelectedHost: state.setSelectedHost,
+      setActiveView: state.setActiveView,
       hostsViewMode: state.hostsViewMode,
       setHostsViewMode: state.setHostsViewMode,
       hostsPreferences: state.hostsPreferences,
@@ -325,7 +327,8 @@ const HostDashboard: React.FC<HostDashboardProps> = ({ onConnect, onOpenFiles, o
   const availableGroups = useMemo(() => hostGroupPaths(hosts, definedGroups), [hosts, definedGroups]);
   const filteredHosts = useMemo(() => visibleHosts(hosts, { query: searchQuery, protocol: protocolFilter, group: groupFilter, recentOnly }, hostsPreferences, recentTimestamps),
     [hosts, searchQuery, protocolFilter, groupFilter, recentOnly, hostsPreferences, recentTimestamps]);
-  const isSearching = Boolean(searchQuery.trim() || protocolFilter !== "all" || groupFilter !== null || recentOnly);
+  const hasSearchFilters = Boolean(searchQuery.trim() || protocolFilter !== "all" || recentOnly);
+  const isSearching = hasSearchFilters || groupFilter !== null;
   const groupTree = useMemo(() => buildGroupTree(hosts, collapsedGroups, definedGroups, hostsPreferences.sort === "group" && hostsPreferences.descending),
     [hosts, collapsedGroups, definedGroups, hostsPreferences.sort, hostsPreferences.descending]);
   const subfolders = useMemo(() => groupFilter ? childFolders(availableGroups, groupFilter) : [], [availableGroups, groupFilter]);
@@ -522,9 +525,16 @@ const HostDashboard: React.FC<HostDashboardProps> = ({ onConnect, onOpenFiles, o
                 <HostCollection hosts={filteredHosts} viewMode={hostsViewMode} dropGroup={groupFilter ?? undefined} {...hostActions} />
                 {filteredHosts.length === 0 && <div className="hosts-empty-state">
                   <IoFolderOpenOutline size={32} className="text-slate-500" />
-                  <h2 className="text-sm font-semibold text-slate-100">{searchQuery.trim() || protocolFilter !== "all" || recentOnly ? "No hosts found" : groupFilter !== null ? "This folder is empty" : "Add your first host"}</h2>
-                  <p className="max-w-sm text-xs leading-5 text-slate-400">{searchQuery.trim() || protocolFilter !== "all" || recentOnly ? "Try another name or address, or clear the filters." : "Add a host here, or move an existing host into this folder."}</p>
-                  <button className="hosts-button" onClick={searchQuery.trim() || protocolFilter !== "all" || recentOnly ? clearFilters : () => handleAddStart()}>{searchQuery.trim() || protocolFilter !== "all" || recentOnly ? "Reset search and filters" : "New Host"}</button>
+                  <h2 className="text-sm font-semibold text-slate-100">{hasSearchFilters ? "No hosts found" : groupFilter !== null ? "This folder is empty" : "Add your first host"}</h2>
+                  <p className="max-w-sm text-xs leading-5 text-slate-400">{hasSearchFilters ? "Try another name or address, or clear the filters." : groupFilter !== null ? "Add a host here, or move an existing host into this folder." : "Enter connection details manually or choose hosts from your OpenSSH config."}</p>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    <button type="button" className="hosts-button" onClick={hasSearchFilters ? clearFilters : () => handleAddStart()}>{hasSearchFilters ? "Reset search and filters" : "New Host"}</button>
+                    {!isSearching && (
+                      <button type="button" className="hosts-button" onClick={() => setActiveView("connections", "import")}>
+                        Import SSH config
+                      </button>
+                    )}
+                  </div>
                 </div>}
               </div>}
             </div>

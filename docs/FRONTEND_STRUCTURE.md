@@ -93,6 +93,8 @@ Native scrollbars share tokens in `src/index.css`: rounded blue/graphite thumbs,
 
 ## State Management
 
+The Connections tab is part of Zustand navigation. Opening Connections from the sidebar selects Keys & identities. The first-host shortcut opens Import SSH config directly, where the user previews and selects hosts.
+
 Zustand stores hosts, selected host, snippets, tabs, terminal instances, WebSockets, session IDs, tab statuses, settings, group state, SFTP state, vault state, recent connections, network-map state, toasts, and confirmation dialogs. Vault state includes a separate `vaultStatusLoaded` flag so the UI never treats an unknown startup status as a clean, uninitialized Vault.
 
 Persisted localStorage keys include settings, view preferences, collapsed groups, defined groups, terminal layout, sidebar state, the non-sensitive first-run guide completion flag, and synthetic terminal tear-out preview metadata. Credentials, terminal command history, and actual terminal output rows must not be stored in localStorage.

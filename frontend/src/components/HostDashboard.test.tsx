@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAppStore, type SavedHostDto } from "../state/store";
 import HostDashboard from "./HostDashboard";
+import Connections from "./Connections";
 
 vi.mock("../api", async (original) => ({ ...(await original<object>()), getApiBase: async () => "http://127.0.0.1:8000" }));
 const host = (id: number, changes: Partial<SavedHostDto> = {}): SavedHostDto => ({ id, revision: 0, name: `Server ${id}`, hostname: `10.0.0.${id}`, port: 22, username: "admin", connection_type: "ssh", ...changes });
@@ -23,10 +24,28 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Hosts workspace", () => {
-  it("offers host creation in an empty flat view even when empty folders exist", () => {
+  it("opens the SSH config importer from an empty host list even when folders exist", () => {
     useAppStore.setState({ hosts: [], hostsPreferences: { sort: "name", descending: false, grouped: false } });
-    render(<HostDashboard onConnect={vi.fn()} />);
+    const view = render(<HostDashboard onConnect={vi.fn()} />);
     expect(screen.getByRole("heading", { name: "Add your first host" })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Import SSH config" }));
+    expect(useAppStore.getState().activeView).toBe("connections");
+    view.rerender(<Connections />);
+    expect(screen.getByRole("heading", { name: "Import OpenSSH config" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Import SSH config", pressed: true })).toBeDefined();
+
+    view.unmount();
+    const { setActiveView } = useAppStore.getState();
+    setActiveView("hosts");
+    setActiveView("connections");
+    expect(useAppStore.getState().connectionsTab).toBe("credentials");
+  });
+
+  it("offers filter reset when a search finds no hosts", () => {
+    render(<HostDashboard onConnect={vi.fn()} />);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search hosts" }), { target: { value: "missing-host" } });
+    expect(screen.getByRole("button", { name: "Reset search and filters" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Import SSH config" })).toBeNull();
   });
 
   it("filters local profiles and parent groups including descendants", async () => {
@@ -122,6 +141,7 @@ describe("Hosts workspace", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(useAppStore.getState().definedGroups.has("Prod/Staging")).toBe(true);
     expect(screen.getByRole("heading", { name: "This folder is empty" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Import SSH config" })).toBeNull();
     expect(screen.getByRole("button", { name: "Open folder Prod/Staging" }).getAttribute("aria-current")).toBe("page");
   });
 

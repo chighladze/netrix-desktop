@@ -3,7 +3,9 @@
 A free, MIT-licensed desktop workspace for SSH, Telnet, Serial and SFTP.
 Keep connections, terminals, files, snippets and network maps on your computer.
 
-[Website](https://netrix-console.com) · [Download for Windows](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.9) · [Build from source](docs/build_instructions.md) · [Customize Netrix](docs/CUSTOMIZATION.md) · [Report a bug](https://github.com/chighladze/netrix-releases/issues/new?template=bug-report.yml)
+[![Netrix demo preview showing side-by-side terminal sessions](https://netrix-console.com/media/terminaltrove/netrix-preview.gif)](https://netrix-console.com/media/terminaltrove/netrix-preview.mp4)
+
+[Watch the full 24-second demo](https://netrix-console.com/media/terminaltrove/netrix-preview.mp4) · [Website](https://netrix-console.com) · [Download for Windows](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.9) · [Build from source](docs/build_instructions.md) · [Customize Netrix](docs/CUSTOMIZATION.md) · [Report a bug](https://github.com/chighladze/netrix-releases/issues/new?template=bug-report.yml)
 
 ![Windows checks](https://github.com/chighladze/netrix-desktop/actions/workflows/windows.yml/badge.svg)
 
