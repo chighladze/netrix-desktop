@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.3.0-beta.10] — 2026-11-19
+
+### Added
+
+- Select **Import SSH config** on the empty Hosts screen to preview OpenSSH aliases and choose which hosts to save.
+
 ## [0.3.0-beta.9] — 2026-11-18
 
 ### Added
