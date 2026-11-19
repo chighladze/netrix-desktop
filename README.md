@@ -5,7 +5,9 @@ Keep connections, terminals, files, snippets and network maps on your computer.
 
 [![Netrix demo preview showing side-by-side terminal sessions](https://netrix-console.com/media/terminaltrove/netrix-preview.gif)](https://netrix-console.com/media/terminaltrove/netrix-preview.mp4)
 
-[Watch the full 24-second demo](https://netrix-console.com/media/terminaltrove/netrix-preview.mp4) · [Download Lightweight](https://github.com/chighladze/netrix-releases/releases/download/v0.3.0-beta.11/Netrix_0.3.0-beta.11_x64-lightweight-setup.exe) · [Offline Full](https://github.com/chighladze/netrix-releases/releases/download/v0.3.0-beta.11/Netrix_0.3.0-beta.11_x64-offline-full-setup.exe) · [Website](https://netrix-console.com) · [Build from source](docs/build_instructions.md) · [Customize Netrix](docs/CUSTOMIZATION.md) · [Report a bug](https://github.com/chighladze/netrix-releases/issues/new?template=bug-report.yml)
+**[Download Lightweight for Windows x64 (9.3 MB)](https://github.com/chighladze/netrix-releases/releases/download/v0.3.0-beta.11/Netrix_0.3.0-beta.11_x64-lightweight-setup.exe)** · [Offline Full with WebView2 (225.5 MB)](https://github.com/chighladze/netrix-releases/releases/download/v0.3.0-beta.11/Netrix_0.3.0-beta.11_x64-offline-full-setup.exe)
+
+[Watch the full 24-second demo](https://netrix-console.com/media/terminaltrove/netrix-preview.mp4) · [Website](https://netrix-console.com) · [Build from source](docs/build_instructions.md) · [Customize Netrix](docs/CUSTOMIZATION.md) · [Report a bug](https://github.com/chighladze/netrix-releases/issues/new?template=bug-report.yml)
 
 ![Windows checks](https://github.com/chighladze/netrix-desktop/actions/workflows/windows.yml/badge.svg)
 
