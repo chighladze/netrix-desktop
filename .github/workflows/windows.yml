@@ -90,6 +90,9 @@ jobs:
         run: npm run check
       - name: Stage debug sidecar
         run: npm run build:sidecar:debug
+      - name: Verify backend EXE product name and version
+        shell: pwsh
+        run: ./scripts/check-sidecar-version.ps1 -BinaryPath ./backend-rs/target/debug/netrix_backend.exe
       - name: Check native shell
         run: npm run check:tauri
       - name: Test native shell

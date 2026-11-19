@@ -78,6 +78,11 @@ sizes.
 
 ## Installer and payload checks
 
+Windows CI reads `ProductName` and `ProductVersion` from the debug backend EXE.
+`npm run check:windows:binaries` repeats this check on the release sidecar that
+NSIS embeds. Both values must match `productName` and the full `version` in
+`src-tauri/tauri.conf.json`, including any prerelease suffix.
+
 Windows installer changes require `npm run test:scripts`, `npm run check:tauri`
 and `npm run test:tauri`. After a Tauri build has installed the NSIS toolchain,
 `npm run test:installer` compiles the production runtime hook with harmless native

@@ -40,6 +40,10 @@ if ([builtBackend, stagedBackend].some(file => sha256(readFileSync(file)) !== in
 const bundledSidecar = nsisSource.match(/^\s*File \/a "\/oname=netrix_backend\.exe" "([^"\r\n]+)"/m)?.[1];
 assert.ok(bundledSidecar, 'NSIS must embed the sidecar as netrix_backend.exe');
 assert.equal(sha256(readFileSync(bundledSidecar)), inspected[1].sha256, 'NSIS must embed the verified staged sidecar');
+execFileSync('pwsh', ['-NoProfile', '-NonInteractive', '-File',
+  path.join(root, 'scripts/check-sidecar-version.ps1'), '-BinaryPath', bundledSidecar], {
+  stdio: 'inherit', windowsHide: true,
+});
 const storage = JSON.parse(execFileSync(path.join(root, binaries[1]), ['--storage-build-info'], {
   encoding: 'utf8', timeout: 15000, windowsHide: true,
 }));
