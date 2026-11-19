@@ -34,7 +34,7 @@ binary for Tauri. `tauri dev` starts the Vite frontend and the native app. Runni
 the frontend alone does not provide desktop IPC or a backend workspace.
 
 To reproduce a released version, check out its public tag before installing dependencies.
-For example, use `git switch --detach v0.3.0-beta.11` for beta.11.
+For beta.12, use `git switch --detach v0.3.0-beta.12`.
 
 Use a disposable development workspace. An unmodified development build uses the
 same application identifier as official Netrix. See [CUSTOMIZATION.md](CUSTOMIZATION.md)
@@ -71,16 +71,15 @@ installer. Keep the original workspace and an encrypted backup intact.
 
 Record the exact EXE's SHA-256 with `Get-FileHash -Algorithm SHA256`. Install into a
 disposable Windows profile, open and unlock Netrix, save a test host, and confirm
-that it survives a restart. For a beta.11 upgrade, create the host in the public
-beta.10 first, then install Lightweight and reopen the same workspace. Keep the original
+that it survives a restart. For a beta.12 upgrade, create the host in the public
+beta.11 first, then install Lightweight and reopen the same workspace. Keep the original
 `.database-lock` throughout both tests.
 
 The [sidecar lifecycle checks](TESTING.md#sidecar-lifecycle) cover immediate restart
 when Windows denies Job Object assignment. To verify offline WebView2 recovery,
 start with a disposable VM where the runtime is absent and disconnect the network
 before installing. Record the Windows edition, runtime version and observed result.
-The [beta.11 release](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.11)
-records these checks for the distributed installers.
+The release notes record the results for both installers. [Windows beta.12](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.12)
 
 ## GitHub Actions
 

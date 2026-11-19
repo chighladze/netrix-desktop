@@ -76,7 +76,7 @@ publish an official release or provide a publisher signature.
 
 ## Version and license
 
-The beta.11 source contains the application code, assets and lockfiles used
+The beta.12 source contains the application code, assets and lockfiles used
 to build both Windows installers. The public build guides and CI
 live alongside them. [Source and installer provenance](SOURCE_SNAPSHOT.md).
 
