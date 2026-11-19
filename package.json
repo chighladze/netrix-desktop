@@ -1,6 +1,6 @@
 {
   "name": "netrix",
-  "version": "0.3.0-beta.11",
+  "version": "0.3.0-beta.12",
   "description": "Next-Generation Terminal with SSH and Telnet support",
   "main": "index.js",
   "engines": {

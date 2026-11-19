@@ -5,7 +5,7 @@ Keep connections, terminals, files, snippets and network maps on your computer.
 
 [![Netrix demo preview showing side-by-side terminal sessions](https://netrix-console.com/media/terminaltrove/netrix-preview.gif)](https://netrix-console.com/media/terminaltrove/netrix-preview.mp4)
 
-**[Download Lightweight for Windows x64 (9.3 MB)](https://github.com/chighladze/netrix-releases/releases/download/v0.3.0-beta.11/Netrix_0.3.0-beta.11_x64-lightweight-setup.exe)** · [Offline Full with WebView2 (225.5 MB)](https://github.com/chighladze/netrix-releases/releases/download/v0.3.0-beta.11/Netrix_0.3.0-beta.11_x64-offline-full-setup.exe)
+**[Download Lightweight for Windows x64 (9.3 MB)](https://github.com/chighladze/netrix-releases/releases/download/v0.3.0-beta.12/Netrix_0.3.0-beta.12_x64-lightweight-setup.exe)** · [Offline Full with WebView2 (225.5 MB)](https://github.com/chighladze/netrix-releases/releases/download/v0.3.0-beta.12/Netrix_0.3.0-beta.12_x64-offline-full-setup.exe)
 
 [Watch the full 24-second demo](https://netrix-console.com/media/terminaltrove/netrix-preview.mp4) · [Website](https://netrix-console.com) · [Build from source](docs/build_instructions.md) · [Customize Netrix](docs/CUSTOMIZATION.md) · [Report a bug](https://github.com/chighladze/netrix-releases/issues/new?template=bug-report.yml)
 
@@ -17,7 +17,7 @@ Keep connections, terminals, files, snippets and network maps on your computer.
 2. Run the installer and open Netrix. Both packages upgrade an existing workspace.
 3. Create a local workspace and keep its master password safe. On **Add your first host**, select **Import SSH config** to preview OpenSSH aliases and choose the hosts to save, or select **New Host** to enter one manually.
 
-Both installers are unsigned. The [Windows release](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.11)
+Both installers are unsigned. The [Windows release](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.12)
 lists their individual sizes, SHA-256 checksums and Windows test results.
 
 **Source code ZIP/TAR files are for developers.** They contain this repository's
