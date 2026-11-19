@@ -138,10 +138,11 @@ test("Windows CI and the release gate prepare the debug sidecar before Tauri che
   ]);
   assert.equal(scripts["prepare:sidecar:debug"], "node scripts/prepare-sidecar.mjs debug");
   assert.match(ci, /if: github.event_name == 'workflow_dispatch' && inputs.build_installer/);
-  for (const command of ["build", "test:installer", "check:windows:binaries", "hash:installers"]) {
+  for (const command of ["build:windows:installers", "test:installer", "check:windows:binaries"]) {
     assert.ok(ci.split(/\r?\n/).some(line => line.trim() === `npm run ${command}`),
       `Manual installer workflow must run ${command}`);
   }
+  assert.ok(ci.includes("bundle/windows-installers/*/*.exe") && ci.includes("bundle/windows-installers/*/installer-hashes.sha256"));
 });
 
 test("Node support stays aligned across packages, lockfiles and the minimum-version CI gate", async () => {

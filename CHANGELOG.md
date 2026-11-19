@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.3.0-beta.11]
+
+- Windows x64 now offers **Lightweight** as the primary installer and **Offline Full** with the complete Microsoft WebView2 runtime for disconnected PCs.
+
 ## [0.3.0-beta.10] — 2026-11-19
 
 ### Added

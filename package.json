@@ -1,6 +1,6 @@
 {
   "name": "netrix",
-  "version": "0.3.0-beta.10",
+  "version": "0.3.0-beta.11",
   "description": "Next-Generation Terminal with SSH and Telnet support",
   "main": "index.js",
   "engines": {
@@ -11,6 +11,7 @@
     "install:all": "npm install && cd frontend && npm install",
     "dev": "npm run tauri dev",
     "build": "npm run tauri build",
+    "build:windows:installers": "tauri build --no-bundle && pwsh -NoProfile -File scripts/bundle-windows-installers.ps1",
     "check:backend": "cargo check --manifest-path backend-rs/Cargo.toml",
     "test:tauri": "cargo test --locked --manifest-path src-tauri/Cargo.toml",
     "test:scripts": "node --test scripts/tests/validation.test.mjs scripts/tests/windows-release.test.mjs",
@@ -27,7 +28,7 @@
     "audit:frontend": "npm audit --prefix frontend --omit=dev --audit-level=info && node scripts/audit-frontend.mjs",
     "audit:backend": "node scripts/audit-backend.mjs",
     "audit:tauri": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/audit-tauri-windows.ps1",
-    "release:check": "npm audit && npm run audit:frontend && npm run check:fmt && npm run check && npm run build:sidecar:debug && npm run check:tauri && npm run test:tauri && npm run build && npm run test:installer && npm run check:windows:binaries && npm run hash:installers && npm run audit:backend && npm run audit:tauri",
+    "release:check": "npm audit && npm run audit:frontend && npm run check:fmt && npm run check && npm run build:sidecar:debug && npm run check:tauri && npm run test:tauri && npm run build:windows:installers && npm run test:installer && npm run check:windows:binaries && npm run audit:backend && npm run audit:tauri",
     "test:installer": "node --test scripts/tests/installer-runtime.test.mjs",
     "check:windows:binaries": "node scripts/verify-windows-binaries.mjs",
     "build:sidecar:debug": "cargo build --locked --manifest-path backend-rs/Cargo.toml --target-dir backend-rs/target && npm run prepare:sidecar:debug",

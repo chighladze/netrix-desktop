@@ -7,6 +7,7 @@ $OriginalToken = $env:GH_TOKEN
 $global:NetrixReleaseTestSignatureStatus = 'NotSigned'
 $global:NetrixReleaseTestMode = 'success'
 $global:NetrixReleaseTestCalls = @()
+$global:NetrixReleaseAttachments = @('Netrix setup.exe', 'installer-hashes.sha256', 'release.json')
 
 function Assert($Condition, [string] $Message) {
     if (-not $Condition) { throw $Message }
@@ -38,13 +39,13 @@ function gh {
         Assert ($args -contains '--prerelease') 'Unsigned builds must be prereleases.'
         Assert ($args -contains '--notes-file') 'Notes must be passed as a file.'
         Assert (-not ($args -contains '--clobber')) 'Existing assets must never be overwritten.'
-        foreach ($Name in @('Netrix setup.exe', 'installer-hashes.sha256', 'release.json')) {
+        foreach ($Name in $global:NetrixReleaseAttachments) {
             Assert ($args -contains (Join-Path $TestRoot $Name)) "Missing attachment: $Name"
         }
         return 'Draft created'
     }
     if ($args[1] -eq 'view') {
-        $Assets = @('Netrix setup.exe', 'installer-hashes.sha256', 'release.json') | ForEach-Object {
+        $Assets = $global:NetrixReleaseAttachments | ForEach-Object {
             $File = Get-Item -LiteralPath (Join-Path $TestRoot $_)
             @{ name = $File.Name; size = $File.Length }
         }
@@ -100,6 +101,33 @@ try {
     $Metadata.sha256 = '0' * 64
     $Metadata | ConvertTo-Json | Set-Content -LiteralPath $MetadataPath -Encoding UTF8
     Expect-Failure $InvokeDraft 'metadata does not match'
+    $Variants = @(Get-WindowsInstallerVariants $Metadata.tag)
+    $Names = $Variants.FileName
+    $global:NetrixReleaseAttachments = @($Names) + @('installer-hashes.sha256', 'release.json')
+    $Metadata.schemaVersion = 2
+    $Metadata.installers = @{}
+    Move-Item -LiteralPath $Installer -Destination (Join-Path $TestRoot $Names[0])
+    Expect-Failure { Get-VerifiedReleasePackage $Metadata.tag $TestRoot -RequireVariants } 'Lightweight and Offline Full'
+    Set-Content -LiteralPath (Join-Path $TestRoot $Names[1]) -Value 'Offline runtime fixture' -Encoding ASCII
+    $Rows = foreach ($Variant in $Variants) {
+        $File = Get-Item -LiteralPath (Join-Path $TestRoot $Variant.FileName)
+        $Digest = (Get-FileHash -LiteralPath $File.FullName).Hash.ToLowerInvariant()
+        $Metadata.installers[$Variant.Key] = @{ fileName = $File.Name; size = $File.Length; sha256 = $Digest; signingStatus = 'unsigned' }
+        "$Digest  $($File.Name)"
+    }
+    foreach ($Field in @('fileName', 'size', 'sha256')) { $Metadata[$Field] = $Metadata.installers.lightweight[$Field] }
+    Set-Content -LiteralPath $Manifest -Value $Rows -Encoding ascii
+    $Metadata | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $MetadataPath
+    $global:NetrixReleaseTestMode = 'success'
+    & $InvokeDraft | Out-Null
+    $Metadata.installers.offlineFull.sha256 = $Metadata.sha256
+    $Metadata | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $MetadataPath
+    Expect-Failure $InvokeDraft 'metadata does not match offlineFull'
+    Set-Content -LiteralPath $Manifest -Value @($Rows[0], $Rows[0]) -Encoding ascii
+    Expect-Failure $InvokeDraft 'duplicate manifest filename'
+    Set-Content -LiteralPath $Manifest -Value $Rows -Encoding ascii
+    Add-Content -LiteralPath (Join-Path $TestRoot $Names[1]) -Value 'tampered'
+    Expect-Failure $InvokeDraft 'SHA256 does not match'
     Write-Host 'All release safety scenarios passed'
 } finally {
     $env:GH_TOKEN = $OriginalToken

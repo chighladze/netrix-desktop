@@ -1,6 +1,7 @@
 # Build Netrix on Windows
 
-This repository supports local development and an unsigned Windows x64 installer.
+This repository supports local development and builds the unsigned Lightweight
+and Offline Full installers for Windows x64.
 macOS and Linux packaging are not currently maintained release targets.
 
 ## Prerequisites
@@ -32,26 +33,24 @@ npm run tauri dev
 binary for Tauri. `tauri dev` starts the Vite frontend and the native app. Running
 the frontend alone does not provide desktop IPC or a backend workspace.
 
-For the source used by the official beta.9 installer, run
-`git switch --detach v0.3.0-beta.9` immediately after cloning, before installing dependencies.
+To reproduce a released version, check out its public tag before installing dependencies.
+For example, use `git switch --detach v0.3.0-beta.11` for beta.11.
 
 Use a disposable development workspace. An unmodified development build uses the
 same application identifier as official Netrix. See [CUSTOMIZATION.md](CUSTOMIZATION.md)
 before testing a fork against valuable data.
 
-## Build a Windows installer
+## Build the Windows installers
 
 ```powershell
-npm run build
+npm run build:windows:installers
 npm run check:windows:binaries
-npm run hash:installers
 ```
 
-Tauri's build hook builds the frontend and a release sidecar with static CRT.
-The NSIS EXE is under `src-tauri/target/release/bundle/nsis/`. WebView2 is included
-using Tauri's offline installer mode. A local/fork build is unsigned unless you
-separately configure legitimate code signing; a successful build does not prove
-Smart App Control acceptance or clean-Windows compatibility.
+Tauri builds the frontend, shell and statically linked backend once. Find both
+installers and their SHA-256 manifest in `src-tauri/target/release/bundle/windows-installers/<version>/`.
+Lightweight downloads WebView2 from Microsoft only if it is missing. Offline Full
+includes the runtime for disconnected PCs. Use `npm run build` to build just Lightweight.
 
 ## Checks
 
@@ -72,24 +71,24 @@ installer. Keep the original workspace and an encrypted backup intact.
 
 Record the exact EXE's SHA-256 with `Get-FileHash -Algorithm SHA256`. Install into a
 disposable Windows profile, open and unlock Netrix, save a test host, and confirm
-that it survives a restart. For an upgrade, create the host in beta.8 first, then
-install beta.9 over it and reopen the same workspace. Keep the original
+that it survives a restart. For a beta.11 upgrade, create the host in the public
+beta.10 first, then install Lightweight and reopen the same workspace. Keep the original
 `.database-lock` throughout both tests.
 
 The [sidecar lifecycle checks](TESTING.md#sidecar-lifecycle) cover immediate restart
 when Windows denies Job Object assignment. To verify offline WebView2 recovery,
 start with a disposable VM where the runtime is absent and disconnect the network
 before installing. Record the Windows edition, runtime version and observed result.
-The [official installer release](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.9)
-records these checks for the distributed EXE.
+The [beta.11 release](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.11)
+records these checks for the distributed installers.
 
 ## GitHub Actions
 
 The `Windows checks and optional installer` workflow checks every push to `main`
 and every pull request. Fork owners can run it manually with `build_installer`
-enabled to produce an unsigned EXE and checksum as an Actions artifact. No
-publishing token, signing certificate or access to the private development repo
-is required. An artifact is not an official Netrix release.
+enabled to produce both unsigned EXEs and their checksum manifest as an Actions
+artifact. Fork owners can run this workflow using the public code and their
+repository's Actions permissions.
 
 ## Troubleshooting
 

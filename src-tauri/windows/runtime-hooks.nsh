@@ -1,6 +1,6 @@
 ; Tauri CLI 2.1 checks only the registry before this hook. Probe with the
 ; same loader as the application, even on /UPDATE and stale pv registrations.
-; Keep the supported offlineInstaller mode; no custom installer template.
+; Both installers use this hook and install into the same application directory.
 !ifndef NETRIX_RUNTIME_PROBE_TIMEOUT
   !define NETRIX_RUNTIME_PROBE_TIMEOUT 15000
 !endif
@@ -30,9 +30,6 @@ Var NetrixRuntimeFailure
 !macroend
 
 !macro NSIS_HOOK_PREINSTALL
-  !if "${INSTALLWEBVIEW2MODE}" != "offlineInstaller"
-    !error "Netrix runtime recovery requires offlineInstaller"
-  !endif
   InitPluginsDir
   File "/oname=$PLUGINSDIR\netrix-runtime-probe.exe" "${MAINBINARYSRCPATH}"
   StrCpy $NetrixRuntimeFailure ""
@@ -42,8 +39,15 @@ Var NetrixRuntimeFailure
   DetailPrint "$1"
   !insertmacro NETRIX_VALIDATE_PROBE_RESULT
   ${If} $0 == 10
-    DetailPrint "WebView2 is unavailable. Running the bundled Microsoft installer."
-    File "/oname=$PLUGINSDIR\MicrosoftEdgeWebView2RuntimeInstaller.exe" "${WEBVIEW2INSTALLERPATH}"
+    !if "${INSTALLWEBVIEW2MODE}" == "offlineInstaller"
+      DetailPrint "Installing WebView2 from the bundled offline runtime."
+      File "/oname=$PLUGINSDIR\MicrosoftEdgeWebView2RuntimeInstaller.exe" "${WEBVIEW2INSTALLERPATH}"
+    !else if "${INSTALLWEBVIEW2MODE}" == "embedBootstrapper"
+      DetailPrint "Downloading WebView2 with the Microsoft bootstrapper. For disconnected PCs, use Netrix Offline Full."
+      File "/oname=$PLUGINSDIR\MicrosoftEdgeWebView2RuntimeInstaller.exe" "${WEBVIEW2BOOTSTRAPPERPATH}"
+    !else
+      !error "Unsupported WebView2 installer mode"
+    !endif
     ClearErrors
     ExecWait '"$PLUGINSDIR\MicrosoftEdgeWebView2RuntimeInstaller.exe" /silent /install' $2
     ${If} ${Errors}
@@ -59,6 +63,10 @@ Var NetrixRuntimeFailure
     !insertmacro NETRIX_VALIDATE_PROBE_RESULT
   ${EndIf}
   ${If} $0 != 0
-    !insertmacro NETRIX_ABORT_RUNTIME "WebView2 is still unavailable (probe: $0; Microsoft installer: $2). Install or repair Microsoft Evergreen WebView2 Runtime x64, then run Netrix Setup again. Existing Netrix data is preserved."
+    !if "${INSTALLWEBVIEW2MODE}" == "embedBootstrapper"
+      !insertmacro NETRIX_ABORT_RUNTIME "WebView2 is still unavailable (probe: $0; Microsoft installer: $2). Check your connection or run the Netrix Offline Full installer."
+    !else
+      !insertmacro NETRIX_ABORT_RUNTIME "WebView2 is still unavailable (probe: $0; Microsoft installer: $2). Install or repair Microsoft Evergreen WebView2 Runtime x64, then run Netrix Setup again. Existing Netrix data is preserved."
+    !endif
   ${EndIf}
 !macroend

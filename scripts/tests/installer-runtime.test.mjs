@@ -7,7 +7,7 @@ import test from 'node:test';
 
 // Compile the production hook with harmless probe/installer stand-ins. Neither
 // the real Microsoft installer nor the Netrix application is executed here.
-test('NSIS runtime hook repairs missing discovery and fails closed', { skip: process.platform !== 'win32' }, () => {
+function verifyRuntimeHook(webviewMode) {
   const temporaryRoot = path.resolve(os.tmpdir());
   const directory = mkdtempSync(path.join(temporaryRoot, 'netrix-runtime-hook-'));
   const run = (file, args, extra = {}) => {
@@ -49,10 +49,10 @@ fn main() {
       const script = path.join(directory, `${name}.nsi`);
       writeFileSync(script, `Unicode true
 !include LogicLib.nsh
-!define INSTALLWEBVIEW2MODE "offlineInstaller"
+!define INSTALLWEBVIEW2MODE "${webviewMode}"
 !define NETRIX_RUNTIME_PROBE_TIMEOUT 2000
 !define MAINBINARYSRCPATH "${probe}"
-!define WEBVIEW2INSTALLERPATH "${executable}"
+!define ${webviewMode === 'offlineInstaller' ? 'WEBVIEW2INSTALLERPATH' : 'WEBVIEW2BOOTSTRAPPERPATH'} "${executable}"
 !include "${hook}"
 Name "Netrix runtime hook fixture"
 OutFile "${setup}"
@@ -97,6 +97,7 @@ FunctionEnd
       if (reason) {
         const failure = readFileSync(path.join(evidence, 'failure.txt'), 'utf8');
         assert.match(failure, reason, mode);
+        if (webviewMode === 'embedBootstrapper' && mode === 'still-missing') assert.match(failure, /Offline Full/);
         if (mode.startsWith('probe-') || mode === 'repaired-probe-fails') {
           assert.match(failure, /availability was not determined/, mode);
           assert.doesNotMatch(failure, /WebView2 is still unavailable/, mode);
@@ -110,4 +111,8 @@ FunctionEnd
     assert.ok(path.basename(directory).startsWith('netrix-runtime-hook-'));
     rmSync(directory, { recursive: true, force: true });
   }
-});
+}
+
+for (const mode of ['embedBootstrapper', 'offlineInstaller']) {
+  test(`NSIS ${mode} repairs missing WebView2 and stops on probe failures`, { skip: process.platform !== 'win32' }, () => verifyRuntimeHook(mode));
+}

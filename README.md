@@ -5,19 +5,18 @@ Keep connections, terminals, files, snippets and network maps on your computer.
 
 [![Netrix demo preview showing side-by-side terminal sessions](https://netrix-console.com/media/terminaltrove/netrix-preview.gif)](https://netrix-console.com/media/terminaltrove/netrix-preview.mp4)
 
-[Watch the full 24-second demo](https://netrix-console.com/media/terminaltrove/netrix-preview.mp4) · [Website](https://netrix-console.com) · [Download for Windows](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.10) · [Build from source](docs/build_instructions.md) · [Customize Netrix](docs/CUSTOMIZATION.md) · [Report a bug](https://github.com/chighladze/netrix-releases/issues/new?template=bug-report.yml)
+[Watch the full 24-second demo](https://netrix-console.com/media/terminaltrove/netrix-preview.mp4) · [Download Lightweight](https://github.com/chighladze/netrix-releases/releases/download/v0.3.0-beta.11/Netrix_0.3.0-beta.11_x64-lightweight-setup.exe) · [Offline Full](https://github.com/chighladze/netrix-releases/releases/download/v0.3.0-beta.11/Netrix_0.3.0-beta.11_x64-offline-full-setup.exe) · [Website](https://netrix-console.com) · [Build from source](docs/build_instructions.md) · [Customize Netrix](docs/CUSTOMIZATION.md) · [Report a bug](https://github.com/chighladze/netrix-releases/issues/new?template=bug-report.yml)
 
 ![Windows checks](https://github.com/chighladze/netrix-desktop/actions/workflows/windows.yml/badge.svg)
 
 ## Install and run
 
-1. Open the [Windows release](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.10).
-2. Download **Netrix_0.3.0-beta.10_x64-setup.exe** from Assets, run the installer, then open Netrix.
-3. Create a local workspace and keep its master password safe. On **Add your first host**, select **Import SSH config** to preview your OpenSSH aliases and choose the hosts to save, or select **New Host** to enter one manually.
+1. Choose **Lightweight** for most Windows x64 PCs. It uses your installed WebView2 runtime and downloads it from Microsoft if needed. Choose **Offline Full** for a disconnected machine. It includes the full WebView2 runtime.
+2. Run the installer and open Netrix. Both packages upgrade an existing workspace.
+3. Create a local workspace and keep its master password safe. On **Add your first host**, select **Import SSH config** to preview OpenSSH aliases and choose the hosts to save, or select **New Host** to enter one manually.
 
-The installer is unsigned and includes WebView2. A standard user installed beta.10
-over beta.9 in an offline Windows 10 LTSC x64 VM with WebView2 already installed.
-The imported host remained available after restarting and unlocking Netrix.
+Both installers are unsigned. The [Windows release](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.11)
+lists their individual sizes, SHA-256 checksums and Windows test results.
 
 **Source code ZIP/TAR files are for developers.** They contain this repository's
 application code and must be built. To install the ready-made app, choose the EXE
@@ -38,8 +37,9 @@ npm run build:sidecar:debug
 npm run tauri dev
 ```
 
-Create an unsigned local Windows installer with `npm run build`.
-It appears in `src-tauri/target/release/bundle/nsis/`.
+Create a local Lightweight installer with `npm run build`, or build both installers
+and their SHA-256 manifest with `npm run build:windows:installers`. The pair is in
+`src-tauri/target/release/bundle/windows-installers/<version>/`.
 Building can download Rust/npm dependencies, Tauri packaging tools and Microsoft's
 WebView2 installer. This repository does not require a Netrix account or private
 repository credentials.
@@ -74,8 +74,8 @@ publish an official release or provide a publisher signature.
 
 ## Version and license
 
-The public tag `v0.3.0-beta.10` contains the application source, assets and
-lockfiles used to build the Windows installer. The public build guides and CI
+The beta.11 source contains the application code, assets and lockfiles used
+to build both Windows installers. The public build guides and CI
 live alongside them. [Source and installer provenance](SOURCE_SNAPSHOT.md).
 
 Netrix is licensed under [MIT](LICENSE). You may use, modify and redistribute it

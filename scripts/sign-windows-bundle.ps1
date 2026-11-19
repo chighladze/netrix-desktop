@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string] $Tag,
     [Parameter(Mandatory = $true)]
-    [string] $InstallerPath,
+    [string[]] $InstallerPath,
     [string] $TimestampUrl = "http://timestamp.digicert.com"
 )
 
@@ -12,7 +12,7 @@ $PSNativeCommandUseErrorActionPreference = $false
 . (Join-Path $PSScriptRoot 'lib/windows-release.ps1')
 Assert-ReleaseTag $Tag
 
-$Installer = (Get-Item -LiteralPath $InstallerPath).FullName
+$Installers = @(Get-Item -LiteralPath $InstallerPath)
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $IsStable = $Tag -match '^v\d+\.\d+\.\d+(?:\+[0-9A-Za-z.-]+)?$'
 $CertificateBase64 = [string] $env:WINDOWS_CERTIFICATE
@@ -23,15 +23,16 @@ if (!$HasCertificate -or !$HasPassword) {
     if ($IsStable -or ($HasCertificate -xor $HasPassword)) {
         throw "Signing $Tag requires both WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD."
     }
-    if ((Get-AuthenticodeSignature -LiteralPath $Installer).Status -ne 'NotSigned') {
-        throw 'Expected an unsigned installer from the release gate.'
+    foreach ($Installer in $Installers) {
+        if ((Get-AuthenticodeSignature -LiteralPath $Installer.FullName).Status -ne 'NotSigned') {
+            throw 'Expected unsigned installers from the release gate.'
+        }
     }
     Write-Warning "No Authenticode certificate configured; preparing $Tag as an explicitly unsigned prerelease."
     return
 }
 
 $PfxPath = Join-Path ([System.IO.Path]::GetTempPath()) "netrix-signing-$([Guid]::NewGuid().ToString('N')).pfx"
-$BundleConfig = [IO.Path]::ChangeExtension($PfxPath, 'json')
 $ExistingThumbprints = @(
     Get-ChildItem Cert:\CurrentUser\My | ForEach-Object { $_.Thumbprint }
 )
@@ -102,21 +103,15 @@ try {
 
     # The bundler signs the main EXE after patching it and before embedding
     # it (including the probe), signs the uninstaller, then signs Setup.
-    @{ bundle = @{ windows = @{ signCommand = @{
+    $SignCommand = @{
         cmd = $SignToolPath
         args = @($SignArguments + '%1')
-    } } } } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $BundleConfig -Encoding utf8
+    }
     $env:WINDOWS_CERTIFICATE = $null
     $env:WINDOWS_CERTIFICATE_PASSWORD = $null
-    Push-Location -LiteralPath $RepoRoot
-    try {
-        & node 'node_modules/@tauri-apps/cli/tauri.js' bundle --ci --bundles nsis --config $BundleConfig
-        if ($LASTEXITCODE -ne 0) { throw "Signed NSIS bundling failed (exit code $LASTEXITCODE)." }
-    } finally {
-        Pop-Location
-    }
+    & (Join-Path $PSScriptRoot 'bundle-windows-installers.ps1') -SignCommand $SignCommand
 
-    foreach ($Exe in @($MainExecutable, $StagedSidecar, $Installer)) {
+    foreach ($Exe in (@($MainExecutable, $StagedSidecar) + $Installers.FullName)) {
         & $SignToolPath verify /pa /all /v $Exe
         if ($LASTEXITCODE -ne 0) { throw "signtool could not verify $Exe." }
         $Signature = Get-AuthenticodeSignature -LiteralPath $Exe
@@ -127,12 +122,11 @@ try {
         }
     }
     Copy-Item -LiteralPath $StagedSidecar -Destination $OutputSidecar -Force
-    Write-Host 'Verified signatures for the shell, sidecar and NSIS installer.'
+    Write-Host 'Verified signatures for the shell, sidecar and both NSIS installers.'
 } finally {
     $env:WINDOWS_CERTIFICATE = $CertificateBase64
     $env:WINDOWS_CERTIFICATE_PASSWORD = $CertificatePassword
     Remove-Item -LiteralPath $PfxPath -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $BundleConfig -Force -ErrorAction SilentlyContinue
     foreach ($Thumbprint in $ImportedThumbprints) {
         if ($ExistingThumbprints -notcontains $Thumbprint) {
             Remove-Item -LiteralPath "Cert:\CurrentUser\My\$Thumbprint" -Force -ErrorAction SilentlyContinue
