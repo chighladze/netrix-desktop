@@ -9,6 +9,7 @@ use std::sync::{
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
+use tauri_plugin_shell::ShellExt;
 use tauri_plugin_window_state::StateFlags;
 
 use uuid::Uuid;
@@ -104,6 +105,14 @@ impl BackendStatus {
             *self = failure;
         }
     }
+}
+
+#[tauri::command]
+fn open_telegram_community(app: AppHandle) -> Result<(), &'static str> {
+    #[allow(deprecated)]
+    app.shell()
+        .open("https://t.me/netrix_console", None)
+        .map_err(|_| "Could not open the Telegram community in the default browser")
 }
 
 #[tauri::command]
@@ -455,6 +464,7 @@ fn main() {
             get_backend_status,
             problem_report::get_problem_report_diagnostics,
             problem_report::open_problem_report,
+            open_telegram_community,
             vault_keychain::read_vault_password,
             vault_keychain::save_vault_password,
             vault_keychain::remove_vault_password,
@@ -561,13 +571,15 @@ mod tests {
     }
 
     #[test]
-    fn whole_app_quit_is_main_window_only() {
+    fn quit_and_telegram_commands_are_main_window_only() {
         let main = include_str!("../capabilities/default.json");
         let terminal = include_str!("../capabilities/detached-terminal.json");
         let map = include_str!("../capabilities/detached-map.json");
-        assert!(main.contains("allow-quit-app"));
-        assert!(!terminal.contains("allow-quit-app"));
-        assert!(!map.contains("allow-quit-app"));
+        for permission in ["allow-quit-app", "allow-open-telegram-community"] {
+            assert!(main.contains(permission));
+            assert!(!terminal.contains(permission));
+            assert!(!map.contains(permission));
+        }
     }
 
     #[test]

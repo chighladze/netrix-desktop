@@ -102,6 +102,11 @@ Both commands are required by `release:check`. Run the
 
 ## UI and workspace regression checks
 
+`TelegramCommunityLink.test.tsx` exercises the About and Settings links, normal
+browser navigation, and the manual address shown when the desktop opener fails.
+For a Windows smoke test, click the link and confirm the default browser opens
+the Netrix-Console group while the workspace stays open.
+
 Shared form styling is verified with frontend typecheck/build and the existing modal and module tests. `QuickActionModal.test.tsx` covers footer submission with unchanged command text, edited metadata and explicit delete/cancel behavior. For visual QA, check dialogs at 1280×800 and 460×560: 12px corners, no horizontal overflow, visible footer actions and internally scrollable fields. Check Connections and Settings at narrower content widths as well as desktop width; keep circular switches and status indicators intact.
 
 `HostFormModal.test.tsx` covers Save host and Connect only for SSH, Telnet, Serial and Local shell, independent port drafts, active-protocol payloads, saved credential unlink/replacement, exact local arguments, key-file cancellation, missing-key passphrases, password generation, vault-gated saves and appearance settings. Visual QA includes all protocol layouts, SSH key authentication and expanded appearance at 1024×640, narrow fields at 420×640, keyboard radio navigation and returning from Vault without losing the draft. Use disposable fixtures; these UI checks do not connect to saved hosts or real serial devices.

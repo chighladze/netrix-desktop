@@ -6,6 +6,7 @@ fn main() {
             "get_backend_status",
             "get_problem_report_diagnostics",
             "open_problem_report",
+            "open_telegram_community",
             "read_vault_password",
             "save_vault_password",
             "remove_vault_password",

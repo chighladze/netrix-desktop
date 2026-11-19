@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-open-telegram-community"
+description = "Enables the open_telegram_community command without any pre-configured scope."
+commands.allow = ["open_telegram_community"]
+
+[[permission]]
+identifier = "deny-open-telegram-community"
+description = "Denies the open_telegram_community command without any pre-configured scope."
+commands.deny = ["open_telegram_community"]

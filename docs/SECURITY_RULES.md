@@ -1,5 +1,11 @@
 # Security Rules and Review
 
+## Telegram community link
+
+Only the main window may invoke `open_telegram_community` from About or Settings.
+The command takes no arguments and asks the operating system to open the fixed
+HTTPS address `https://t.me/netrix_console` in the default browser.
+
 ## User-reviewed problem reports
 
 `get_problem_report_diagnostics` reads the shell's in-memory backend state and

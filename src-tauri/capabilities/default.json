@@ -9,6 +9,7 @@
     "allow-get-backend-status",
     "allow-get-problem-report-diagnostics",
     "allow-open-problem-report",
+    "allow-open-telegram-community",
     "allow-terminal-dock-target",
     "allow-wait-terminal-drag-release",
     "allow-cancel-terminal-drag",
