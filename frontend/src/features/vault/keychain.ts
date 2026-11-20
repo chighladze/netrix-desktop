@@ -1,10 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 
+export const isPortable = () =>
+  typeof window !== "undefined" && (window as Window & { __NETRIX_PORTABLE__?: boolean }).__NETRIX_PORTABLE__ === true;
+
 // A detached connection picker can unlock the backend vault manually. Native
 // remembered-password access remains exclusive to the main webview's ACL.
 export const canUseVaultKeychain = () => {
   const params = new URLSearchParams(window.location.search);
-  return params.get("detached") !== "true" && params.get("detachedMap") !== "true";
+  return !isPortable() && params.get("detached") !== "true" && params.get("detachedMap") !== "true";
 };
 
 // Fixed-purpose commands; no arbitrary credential-store keys or persistent JS secrets.
@@ -16,5 +19,6 @@ export const readVaultPassword = async (): Promise<string | null> => {
   return value;
 };
 export const saveVaultPassword = (password: string) =>
-  invoke<void>("save_vault_password", { password });
-export const removeVaultPassword = () => invoke<void>("remove_vault_password");
+  isPortable() ? Promise.reject(new Error("Enter the Vault password manually in Netrix Portable")) :
+    invoke<void>("save_vault_password", { password });
+export const removeVaultPassword = () => isPortable() ? Promise.resolve() : invoke<void>("remove_vault_password");

@@ -19,7 +19,10 @@ if ((Test-Path -LiteralPath $ArtifactDirectory) -and @(Get-ChildItem -LiteralPat
 & (Join-Path $PSScriptRoot 'sign-windows-bundle.ps1') -Tag $Tag -InstallerPath $Installers
 New-Item -ItemType Directory -Path $ArtifactDirectory -Force | Out-Null
 Copy-Item -LiteralPath ($Installers + (Join-Path $Bundle 'installer-hashes.sha256')) -Destination $ArtifactDirectory
-$Package = Get-VerifiedReleasePackage $Tag $ArtifactDirectory -RequireVariants
+$Archive = & (Join-Path $PSScriptRoot 'build-windows-portable.ps1') -Tag $Tag -OutputDirectory $ArtifactDirectory
+$ArchiveHash = (Get-FileHash -LiteralPath $Archive.FullName).Hash.ToLowerInvariant()
+Add-Content -LiteralPath (Join-Path $ArtifactDirectory 'installer-hashes.sha256') -Value "$ArchiveHash  $($Archive.Name)" -Encoding ascii
+$Package = Get-VerifiedReleasePackage $Tag $ArtifactDirectory -RequireVariants -RequirePortable
 $Downloads = [ordered]@{}
 foreach ($Asset in $Package.Assets) {
     $Downloads[$Asset.Key] = [ordered]@{
@@ -30,7 +33,7 @@ foreach ($Asset in $Package.Assets) {
     }
 }
 $Metadata = [ordered]@{
-    schemaVersion = 2
+    schemaVersion = 3
     tag = $Tag
     version = $Tag.Substring(1)
     platform = 'windows-x86_64'
@@ -39,6 +42,7 @@ $Metadata = [ordered]@{
     sha256 = $Package.Sha256
     signingStatus = $Package.SigningStatus
     installers = $Downloads
+    portable = [ordered]@{ fileName = $Archive.Name; size = $Archive.Length; sha256 = $ArchiveHash }
     sourceCommit = $SourceCommit
     builtAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     buildUrl = $BuildUrl
@@ -64,10 +68,15 @@ $SignatureNote
 - $($Downloads.offlineFull.fileName) ($($Downloads.offlineFull.size) bytes)
 - SHA-256: $($Downloads.offlineFull.sha256)
 
+**Portable ZIP** runs from an extracted folder. WebView2 Evergreen must be installed on each PC. Close Netrix and copy the whole folder, including Data, to move your workspace. Use your original master password on the new PC.
+
+- $($Archive.Name) ($($Archive.Length) bytes)
+- SHA-256: $ArchiveHash
+
 - Source commit: $SourceCommit
 - Automated checks: the complete Netrix release gate passed before this package was prepared.
 
-Before publishing, record clean-profile installer/runtime checks for both SHA-256 values using docs/build_instructions.md.
+Before publishing, record the clean-profile checks for both installers and the two-PC transfer result for this Portable ZIP using docs/build_instructions.md.
 "@
 $Notes | Set-Content -LiteralPath (Join-Path $Package.Root 'release-notes.md') -Encoding UTF8
 Write-Host "Prepared $($Metadata.fileName), SHA256 $($Metadata.sha256), signing: $($Metadata.signingStatus)."

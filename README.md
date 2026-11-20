@@ -5,7 +5,7 @@ Keep connections, terminals, files, snippets and network maps on your computer.
 
 [![Netrix demo preview showing side-by-side terminal sessions](https://netrix-console.com/media/terminaltrove/netrix-preview.gif)](https://netrix-console.com/media/terminaltrove/netrix-preview.mp4)
 
-**[Download Lightweight for Windows x64 (9.3 MB)](https://github.com/chighladze/netrix-releases/releases/download/v0.3.0-beta.12/Netrix_0.3.0-beta.12_x64-lightweight-setup.exe)** · [Offline Full with WebView2 (225.5 MB)](https://github.com/chighladze/netrix-releases/releases/download/v0.3.0-beta.12/Netrix_0.3.0-beta.12_x64-offline-full-setup.exe)
+**[Download Lightweight for Windows x64 (9.4 MB)](https://github.com/chighladze/netrix-releases/releases/download/v0.3.0-beta.13/Netrix_0.3.0-beta.13_x64-lightweight-setup.exe)** · [Offline Full with WebView2 (305.5 MB)](https://github.com/chighladze/netrix-releases/releases/download/v0.3.0-beta.13/Netrix_0.3.0-beta.13_x64-offline-full-setup.exe) · [Portable ZIP (10.0 MB)](https://github.com/chighladze/netrix-releases/releases/download/v0.3.0-beta.13/Netrix_0.3.0-beta.13_x64-portable.zip)
 
 [Watch the full 24-second demo](https://netrix-console.com/media/terminaltrove/netrix-preview.mp4) · [Website](https://netrix-console.com) · [Build from source](docs/build_instructions.md) · [Customize Netrix](docs/CUSTOMIZATION.md) · [Report a bug](https://github.com/chighladze/netrix-releases/issues/new?template=bug-report.yml)
 
@@ -13,16 +13,15 @@ Keep connections, terminals, files, snippets and network maps on your computer.
 
 ## Install and run
 
-1. Choose **Lightweight** for most Windows x64 PCs. It uses your installed WebView2 runtime and downloads it from Microsoft if needed. Choose **Offline Full** for a disconnected machine. It includes the full WebView2 runtime.
-2. Run the installer and open Netrix. Both packages upgrade an existing workspace.
-3. Create a local workspace and keep its master password safe. On **Add your first host**, select **Import SSH config** to preview OpenSSH aliases and choose the hosts to save, or select **New Host** to enter one manually.
+1. Choose **Lightweight** for most Windows x64 PCs. It uses the installed WebView2 runtime or downloads it from Microsoft if needed. **Offline Full** includes the complete runtime for a disconnected PC.
+2. Run the installer and open Netrix. Both installers can upgrade an existing installed workspace.
+3. Create a local workspace and keep its master password safe. On **Add your first host**, choose **Import SSH config** to preview OpenSSH aliases and select hosts to save, or choose **New Host** to enter one manually.
 
-Both installers are unsigned. The [Windows release](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.12)
-lists their individual sizes, SHA-256 checksums and Windows test results.
+Extract **Portable ZIP** to a writable folder on a PC with WebView2 Evergreen installed and open `Netrix.exe`. To move your workspace, close Netrix and copy the entire folder, including `Netrix.portable` and `Data`. Use the same master password on the next PC.
 
-**Source code ZIP/TAR files are for developers.** They contain this repository's
-application code and must be built. To install the ready-made app, choose the EXE
-in the separate [installer releases](https://github.com/chighladze/netrix-releases/releases).
+The Netrix executables and installers are unsigned. The [Windows release](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.13) lists the checksums and test results for all three downloads.
+
+GitHub’s **Source code** archives contain the project files for building Netrix. The ready-to-run archive is named `Netrix_0.3.0-beta.13_x64-portable.zip`.
 
 ## Build your own version
 
@@ -42,6 +41,7 @@ npm run tauri dev
 Create a local Lightweight installer with `npm run build`, or build both installers
 and their SHA-256 manifest with `npm run build:windows:installers`. The pair is in
 `src-tauri/target/release/bundle/windows-installers/<version>/`.
+The [Windows build guide](docs/build_instructions.md#build-the-portable-zip) also covers packaging the Portable ZIP.
 Building can download Rust/npm dependencies, Tauri packaging tools and Microsoft's
 WebView2 installer. This repository does not require a Netrix account or private
 repository credentials.
@@ -76,9 +76,7 @@ publish an official release or provide a publisher signature.
 
 ## Version and license
 
-The beta.12 source contains the application code, assets and lockfiles used
-to build both Windows installers. The public build guides and CI
-live alongside them. [Source and installer provenance](SOURCE_SNAPSHOT.md).
+The beta.13 source contains the application code, assets and lockfiles used to build both installers and the Portable ZIP. [Source and release provenance](SOURCE_SNAPSHOT.md).
 
 Netrix is licensed under [MIT](LICENSE). You may use, modify and redistribute it
 under that license, retaining its notice. Third-party dependencies retain their

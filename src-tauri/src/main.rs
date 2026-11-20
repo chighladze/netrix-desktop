@@ -16,6 +16,8 @@ use uuid::Uuid;
 
 mod backend_diagnostics;
 mod backend_process;
+#[cfg(any(windows, test))]
+mod portable;
 mod problem_report;
 #[cfg(windows)]
 mod runtime_probe;
@@ -427,7 +429,8 @@ fn main() {
         std::process::exit(runtime_probe::run());
     }
 
-    let context = tauri::generate_context!();
+    #[allow(unused_mut)]
+    let mut context = tauri::generate_context!();
     let identifier = &context.config().identifier;
     if let Err(message) = validate_e2e_identifier(
         identifier,
@@ -436,8 +439,39 @@ fn main() {
         eprintln!("{message}");
         std::process::exit(2);
     }
-    let _ = APP_SCOPE_IDENTIFIER.set(identifier.clone());
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    let window_state = tauri_plugin_window_state::Builder::default()
+        .with_filter(|label| label == "main")
+        .with_state_flags(StateFlags::SIZE | StateFlags::MAXIMIZED);
+    #[cfg(windows)]
+    let profile = if identifier == APP_IDENTIFIER {
+        env::current_exe().and_then(|exe| portable::Profile::beside(&exe))
+            .unwrap_or_else(|error| portable::startup_error(&format!("Could not access the Portable folder. Extract Netrix to a writable folder and try again.\n\n{error}")))
+    } else {
+        None
+    };
+    #[cfg(windows)]
+    let (builder, window_state, portable_data) = match profile {
+        Some(profile) => {
+            if runtime_probe::run() != 0 {
+                portable::startup_error("Netrix Portable requires Microsoft Edge WebView2 Evergreen Runtime. Install the runtime on this PC, then start Netrix.exe again.");
+            }
+            context.config_mut().identifier = profile.identifier;
+            // The loader applies this to every webview, including detached windows.
+            env::set_var("WEBVIEW2_USER_DATA_FOLDER", profile.data.join("WebView2"));
+            let builder = builder.append_invoke_initialization_script(
+                ";Object.defineProperty(window, '__NETRIX_PORTABLE__', { value: true });",
+            );
+            let window_state = window_state
+                .with_filename(profile.data.join("window-state.json").to_string_lossy());
+            (builder, window_state, Some(profile.data))
+        }
+        None => (builder, window_state, None),
+    };
+    #[cfg(not(windows))]
+    let portable_data: Option<PathBuf> = None;
+    let _ = APP_SCOPE_IDENTIFIER.set(context.config().identifier.clone());
+    builder
         // Keep a single owner for the shared database and in-memory vault key.
         // This must be the first plugin so a secondary launch exits before it
         // initializes any other application state.
@@ -450,12 +484,7 @@ fn main() {
         }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(
-            tauri_plugin_window_state::Builder::default()
-                .with_filter(|label| label == "main")
-                .with_state_flags(StateFlags::SIZE | StateFlags::MAXIMIZED)
-                .build(),
-        )
+        .plugin(window_state.build())
         .manage(BackendState::new())
         .manage(terminal_drag::DragObservers::default())
         .invoke_handler(tauri::generate_handler![
@@ -480,7 +509,7 @@ fn main() {
         .on_page_load(sftp_save_access::cancel_on_navigation)
         .setup(move |app| {
             let backend = app.state::<BackendState>();
-            let app_data_dir = match app.path().app_data_dir() {
+            let app_data_dir = match portable_data.map(Ok).unwrap_or_else(|| app.path().app_data_dir()) {
                 Ok(path) => path,
                 Err(error) => {
                     backend.fail(format!("Failed to resolve app data directory: {error}"));

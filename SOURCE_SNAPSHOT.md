@@ -1,15 +1,16 @@
-# Netrix 0.3.0-beta.12 source
+# Netrix 0.3.0-beta.13 source
 
-Both Windows x64 installers were built from commit `dbc875504a413202f911f49e05cfc77ca3309f91`. The release metadata identifies Lightweight as the primary download. [Release metadata](https://github.com/chighladze/netrix-releases/releases/download/v0.3.0-beta.12/release.json).
+The three Windows x64 downloads were built from commit `263bb26ce031c69fddcf0d729cfd6209b1839f21`. Lightweight is the primary installer. [Release metadata](https://github.com/chighladze/netrix-releases/releases/download/v0.3.0-beta.13/release.json).
 
-| Installer | Bytes | SHA-256 |
+| Windows x64 download | Bytes | SHA-256 |
 | --- | ---: | --- |
-| `Netrix_0.3.0-beta.12_x64-lightweight-setup.exe` | 9,342,073 | `5b7cda0b88eacef3bbdeb32939606d7e4bf1738c6fe85bc3c81a0539c2e85180` |
-| `Netrix_0.3.0-beta.12_x64-offline-full-setup.exe` | 225,467,274 | `5c055927c6b10e1bd6fc1f89eed344435537298064b0ac43a36b4bc0f4d100eb` |
+| Lightweight | 9,350,018 | `3f157c37fb625da6cff03db17519d69c50946575a067682aba4ebfbf66b6a2b6` |
+| Offline Full | 305,518,698 | `7f5650b0bf3ec203a227cc293fcc0502a6052e84b8c632dd71b97b21c26fb56b` |
+| Portable ZIP | 9,956,736 | `0addcc441992d8e4a580a39eb8f8c119021f7d44839a672019b05987fa0a2ff2` |
 
 The complete `backend-rs/`, `frontend/` and `src-tauri/` trees and the root npm manifest and lockfile match the build source. The public repository maintains its own development guides and Windows CI. Its history begins with the [beta.8 source snapshot](https://github.com/chighladze/netrix-desktop/tree/v0.3.0-beta.8).
 
-Build both installers using the [Windows build guide](docs/build_instructions.md). The [Windows release](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.12) lists download links and the results for existing, online and offline WebView2 installations.
+The [Windows build guide](docs/build_instructions.md) covers both installers and the Portable ZIP. The [Windows release](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.13) records the upgrade, offline installation and two-machine transfer checks.
 
 The public source workflow scans with Gitleaks 8.30.1. Its fixture-specific
 exceptions cover upstream russh test keys, the RFC 6455 example WebSocket nonce

@@ -120,6 +120,24 @@ try {
     $Metadata | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $MetadataPath
     $global:NetrixReleaseTestMode = 'success'
     & $InvokeDraft | Out-Null
+    Expect-Failure { Get-VerifiedReleasePackage $Metadata.tag $TestRoot -RequirePortable } 'Expected the versioned Portable ZIP'
+    $PortableName = Get-WindowsPortableName $Metadata.tag
+    $PortablePath = Join-Path $TestRoot $PortableName
+    Set-Content -LiteralPath $PortablePath -Value 'Release manifest fixture' -Encoding ascii
+    $PortableHash = (Get-FileHash -LiteralPath $PortablePath).Hash.ToLowerInvariant()
+    $Metadata.schemaVersion = 3
+    $Metadata.portable = @{fileName = $PortableName; size = (Get-Item $PortablePath).Length; sha256 = $PortableHash}
+    $Metadata | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $MetadataPath
+    $global:NetrixReleaseAttachments += $PortableName
+    Set-Content -LiteralPath $Manifest -Value @($Rows + "$PortableHash  $PortableName") -Encoding ascii
+    & $InvokeDraft | Out-Null
+    Add-Content -LiteralPath $PortablePath -Value 'changed'
+    Expect-Failure $InvokeDraft 'Portable ZIP SHA256'
+    Remove-Item -LiteralPath $PortablePath
+    $global:NetrixReleaseAttachments = @($Names) + @('installer-hashes.sha256', 'release.json')
+    $Metadata.schemaVersion = 2
+    $Metadata.Remove('portable')
+    Set-Content -LiteralPath $Manifest -Value $Rows -Encoding ascii
     $Metadata.installers.offlineFull.sha256 = $Metadata.sha256
     $Metadata | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $MetadataPath
     Expect-Failure $InvokeDraft 'metadata does not match offlineFull'

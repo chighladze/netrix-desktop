@@ -93,6 +93,9 @@ pub async fn read_vault_password(_app: tauri::AppHandle) -> Result<Option<String
     #[cfg(windows)]
     {
         let identifier = _app.config().identifier.clone();
+        if identifier.starts_with(crate::portable::PREFIX) {
+            return Ok(None);
+        }
         tauri::async_runtime::spawn_blocking(move || native::with_entry(&identifier, native::read))
             .await
             .map_err(|_| "Credential storage task failed".to_string())?
@@ -107,6 +110,9 @@ pub async fn save_vault_password(_app: tauri::AppHandle, password: String) -> Re
     #[cfg(windows)]
     {
         let identifier = _app.config().identifier.clone();
+        if identifier.starts_with(crate::portable::PREFIX) {
+            return Err("Enter the Vault password manually in Netrix Portable".into());
+        }
         tauri::async_runtime::spawn_blocking(move || {
             native::with_entry(&identifier, |entry| native::save(entry, &password))
         })
@@ -125,6 +131,9 @@ pub async fn remove_vault_password(_app: tauri::AppHandle) -> Result<(), String>
     #[cfg(windows)]
     {
         let identifier = _app.config().identifier.clone();
+        if identifier.starts_with(crate::portable::PREFIX) {
+            return Ok(());
+        }
         tauri::async_runtime::spawn_blocking(move || {
             native::with_entry(&identifier, native::remove)
         })

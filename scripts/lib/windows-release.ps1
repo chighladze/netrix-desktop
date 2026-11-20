@@ -15,7 +15,12 @@ function Get-WindowsInstallerVariants([string] $Tag) {
     [PSCustomObject]@{ Key = 'offlineFull'; FileName = "$Prefix-offline-full-setup.exe"; Mode = 'offlineInstaller' }
 }
 
-function Get-VerifiedReleasePackage([string] $Tag, [string] $ArtifactDirectory, [switch] $RequireVariants) {
+function Get-WindowsPortableName([string] $Tag) {
+    Assert-ReleaseTag $Tag
+    "Netrix_$($Tag.Substring(1))_x64-portable.zip"
+}
+
+function Get-VerifiedReleasePackage([string] $Tag, [string] $ArtifactDirectory, [switch] $RequireVariants, [switch] $RequirePortable) {
     Assert-ReleaseTag $Tag
     $Root = (Resolve-Path -LiteralPath $ArtifactDirectory).Path
     $Installers = @(Get-ChildItem -LiteralPath $Root -Recurse -Filter '*.exe' -File)
@@ -25,6 +30,14 @@ function Get-VerifiedReleasePackage([string] $Tag, [string] $ArtifactDirectory, 
         throw 'Release assets must be at the artifact root.'
     }
     $Variants = @(Get-WindowsInstallerVariants $Tag)
+    $PortableName = Get-WindowsPortableName $Tag
+    $Archives = @(Get-ChildItem -LiteralPath $Root -Recurse -Filter '*.zip' -File)
+    if ($Archives.Count -or $RequirePortable) {
+        if ($Archives.Count -ne 1 -or $Archives[0].DirectoryName -ne $Root -or $Archives[0].Name -cne $PortableName) {
+            throw 'Expected the versioned Portable ZIP at the artifact root.'
+        }
+        $RequireVariants = $true
+    }
     # Older release.json files describe one installer. A named variant always requires its sibling.
     if ($RequireVariants -or $Installers.Count -ne 1 -or $Installers[0].Name -in $Variants.FileName) {
         if ($Installers.Count -ne 2 -or @($Variants | Where-Object { $_.FileName -cnotin $Installers.Name }).Count) {
@@ -34,11 +47,12 @@ function Get-VerifiedReleasePackage([string] $Tag, [string] $ArtifactDirectory, 
         $Variants = @([PSCustomObject]@{ Key = 'legacy'; FileName = $Installers[0].Name })
     }
     $Rows = @(Get-Content -LiteralPath $Manifests[0].FullName | Where-Object { $_ -and -not $_.StartsWith('#') })
-    if ($Rows.Count -ne $Variants.Count) { throw 'Hash manifest must contain one row per installer.' }
+    $FileNames = @($Variants.FileName) + @($Archives | ForEach-Object Name)
+    if ($Rows.Count -ne $FileNames.Count) { throw 'Hash manifest must contain one row per installer or Portable ZIP.' }
     $Hashes = @{}
     foreach ($Row in $Rows) {
         if ($Row -cnotmatch '^([A-Fa-f0-9]{64})  ([^/\\\r\n]+)$') { throw 'Expected a SHA256 and a plain installer filename.' }
-        if ($Matches[2] -cnotin $Variants.FileName -or $Hashes.ContainsKey($Matches[2])) { throw 'Invalid or duplicate manifest filename.' }
+        if ($Matches[2] -cnotin $FileNames -or $Hashes.ContainsKey($Matches[2])) { throw 'Invalid or duplicate manifest filename.' }
         $Hashes[$Matches[2]] = $Matches[1]
     }
     $Stable = $Tag -match '^v[0-9]+\.[0-9]+\.[0-9]+(?:\+.*)?$'
@@ -53,9 +67,15 @@ function Get-VerifiedReleasePackage([string] $Tag, [string] $ArtifactDirectory, 
     }
     $Assets = @($Assets)
     if (@($Assets.SigningStatus | Sort-Object -Unique).Count -ne 1) { throw 'Both installers must have the same signing status.' }
+    $Portable = if ($Archives.Count) {
+        $Hash = (Get-FileHash -LiteralPath $Archives[0].FullName).Hash.ToLowerInvariant()
+        if ($Hash -ne $Hashes[$PortableName]) { throw 'Portable ZIP SHA256 does not match the manifest.' }
+        [PSCustomObject]@{ File = $Archives[0]; Sha256 = $Hash }
+    }
     [PSCustomObject]@{
         Root = $Root
         Assets = $Assets
+        Portable = $Portable
         Installer = $Assets[0].File
         Manifest = $Manifests[0]
         Sha256 = $Assets[0].Sha256

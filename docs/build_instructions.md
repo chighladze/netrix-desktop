@@ -1,7 +1,7 @@
 # Build Netrix on Windows
 
-This repository supports local development and builds the unsigned Lightweight
-and Offline Full installers for Windows x64.
+This repository supports local development and builds the Lightweight and Offline
+Full installers and the Portable ZIP for Windows x64.
 macOS and Linux packaging are not currently maintained release targets.
 
 ## Prerequisites
@@ -34,7 +34,7 @@ binary for Tauri. `tauri dev` starts the Vite frontend and the native app. Runni
 the frontend alone does not provide desktop IPC or a backend workspace.
 
 To reproduce a released version, check out its public tag before installing dependencies.
-For beta.12, use `git switch --detach v0.3.0-beta.12`.
+For beta.13, use `git switch --detach v0.3.0-beta.13`.
 
 Use a disposable development workspace. An unmodified development build uses the
 same application identifier as official Netrix. See [CUSTOMIZATION.md](CUSTOMIZATION.md)
@@ -51,6 +51,20 @@ Tauri builds the frontend, shell and statically linked backend once. Find both
 installers and their SHA-256 manifest in `src-tauri/target/release/bundle/windows-installers/<version>/`.
 Lightweight downloads WebView2 from Microsoft only if it is missing. Offline Full
 includes the runtime for disconnected PCs. Use `npm run build` to build just Lightweight.
+
+## Build the Portable ZIP
+
+After building the installers, package their release binaries with this command.
+
+```powershell
+./scripts/build-windows-portable.ps1 -Tag v0.3.0-beta.13 -OutputDirectory release-artifacts
+```
+
+To build only Portable, first run `npm run tauri -- build --no-bundle` to build
+the release binaries. Extract the ZIP into a writable folder on a Windows x64 PC
+with WebView2 Evergreen. Launch `Netrix.exe` there. To move the workspace, close
+Netrix and copy the whole folder, including `Data` and `Netrix.portable`. Unlock
+it on the other PC with the original master password.
 
 ## Checks
 
@@ -71,15 +85,16 @@ installer. Keep the original workspace and an encrypted backup intact.
 
 Record the exact EXE's SHA-256 with `Get-FileHash -Algorithm SHA256`. Install into a
 disposable Windows profile, open and unlock Netrix, save a test host, and confirm
-that it survives a restart. For a beta.12 upgrade, create the host in the public
-beta.11 first, then install Lightweight and reopen the same workspace. Keep the original
-`.database-lock` throughout both tests.
+that it survives a restart. For a beta.13 upgrade, create a host and Vault item in
+beta.12, close the app, install Lightweight and reopen the same workspace and
+Vault with the original password.
 
 The [sidecar lifecycle checks](TESTING.md#sidecar-lifecycle) cover immediate restart
 when Windows denies Job Object assignment. To verify offline WebView2 recovery,
 start with a disposable VM where the runtime is absent and disconnect the network
 before installing. Record the Windows edition, runtime version and observed result.
-The release notes record the results for both installers. [Windows beta.12](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.12)
+The release notes record which Windows installations and Portable transfers were
+verified. [Windows beta.13](https://github.com/chighladze/netrix-releases/releases/tag/v0.3.0-beta.13)
 
 ## GitHub Actions
 

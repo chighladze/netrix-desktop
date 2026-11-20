@@ -25,6 +25,7 @@ import {
 } from "react-icons/io5";
 import { useShallow } from "zustand/react/shallow";
 import { validateNewVaultMasterPassword } from "../features/vault/password";
+import { isPortable } from "../features/vault/keychain";
 import { useAppStore } from "../state/store";
 import { getThemesList } from "../themes";
 
@@ -1028,7 +1029,7 @@ const Settings: React.FC = () => {
                       <p className="mt-3 text-[11px] leading-4 text-amber-200/75">
                         Use at least 10 characters. Netrix cannot recover the master password; resetting the Vault deletes saved secrets but keeps host profiles. Quick Connect and features without saved secrets remain available while the Vault is locked.
                       </p>
-                      {settings.security.vaultRememberPassword && (
+                      {!isPortable() && settings.security.vaultRememberPassword && (
                         <p className="mt-1 text-[11px] leading-4 text-gray-500">
                           Remember Vault Password is enabled, so Netrix will ask the operating system keychain to store it on this device. You can disable this below.
                         </p>
@@ -1103,7 +1104,7 @@ const Settings: React.FC = () => {
                   >
                     {vaultLoading ? "..." : vaultInitialized ? "Unlock" : "Create & Unlock"}
                   </button>
-                  {vaultInitialized && settings.security.vaultRememberPassword && settings.security.vaultUnlockMode === "session" && hasStoredVaultPassword && (
+                  {!isPortable() && vaultInitialized && settings.security.vaultRememberPassword && settings.security.vaultUnlockMode === "session" && hasStoredVaultPassword && (
                     <button
                       onClick={unlockWithStoredPassword}
                       disabled={vaultSavedUnlockBusy || vaultLoading}
@@ -1250,7 +1251,7 @@ const Settings: React.FC = () => {
               />
             </SettingRow>}
 
-            <SettingRow
+            {!isPortable() && <SettingRow
               label="Remember Vault Password"
               description="Remember in Windows Credential Manager for vault unlock within an open workspace. Opening the database or unlocking the application always requires entering the master password."
             >
@@ -1261,7 +1262,7 @@ const Settings: React.FC = () => {
                   updateSettings("security", { vaultRememberPassword: v })
                 }
               />
-            </SettingRow>
+            </SettingRow>}
 
             <SettingRow
               label="Vault Auto-Lock"

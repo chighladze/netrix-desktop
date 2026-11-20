@@ -1,5 +1,15 @@
 # Security Rules and Review
 
+## Windows Portable
+
+The `Netrix.portable` marker beside the executable selects Portable mode. The
+desktop shell puts the encrypted workspace, WebView2 preferences and window
+state under the adjacent `Data` directory. The installed application and each
+Portable folder have separate single-instance identities. Portable requires the
+master password on each PC and disables operating-system credential storage.
+SQLCipher protects the database. Browser preferences and diagnostic files have
+the filesystem permissions of the containing folder.
+
 ## Telegram community link
 
 Only the main window may invoke `open_telegram_community` from About or Settings.

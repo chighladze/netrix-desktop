@@ -38,4 +38,13 @@ describe("fixed-scope native credential commands", () => {
       expect(native.invoke).not.toHaveBeenCalled();
     } finally { window.history.replaceState(null, "", previous); }
   });
+  it("never reads, writes or removes an OS credential in Portable mode", async () => {
+    vi.stubGlobal("__NETRIX_PORTABLE__", true);
+    try {
+      expect(await readVaultPassword()).toBeNull();
+      await expect(saveVaultPassword("disposable")).rejects.toThrow("Portable");
+      await removeVaultPassword();
+      expect(native.invoke).not.toHaveBeenCalled();
+    } finally { vi.unstubAllGlobals(); }
+  });
 });

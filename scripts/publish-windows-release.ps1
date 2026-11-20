@@ -3,18 +3,19 @@ param(
     [Parameter(Mandatory = $true)][string] $Tag,
     [Parameter(Mandatory = $true)][ValidatePattern('^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$')][string] $Repository,
     [string] $ArtifactDirectory = 'release-artifacts',
-    [switch] $RequireVariants
+    [switch] $RequireVariants,
+    [switch] $RequirePortable
 )
 
 # Kept under the existing filename for callers; this command creates a DRAFT only.
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 . (Join-Path $PSScriptRoot 'lib/windows-release.ps1')
-$Package = Get-VerifiedReleasePackage $Tag $ArtifactDirectory -RequireVariants:$RequireVariants
+$Package = Get-VerifiedReleasePackage $Tag $ArtifactDirectory -RequireVariants:$RequireVariants -RequirePortable:$RequirePortable
 $MetadataPath = Join-Path $Package.Root 'release.json'
 $NotesPath = Join-Path $Package.Root 'release-notes.md'
 $Metadata = Get-Content -LiteralPath $MetadataPath -Raw | ConvertFrom-Json
-$ExpectedSchema = if ($Package.Assets.Count -eq 2) { 2 } else { 1 }
+$ExpectedSchema = if ($Package.Portable) { 3 } elseif ($Package.Assets.Count -eq 2) { 2 } else { 1 }
 if ($Metadata.schemaVersion -ne $ExpectedSchema -or $Metadata.tag -cne $Tag -or
     $Metadata.version -cne $Tag.Substring(1) -or $Metadata.platform -cne 'windows-x86_64' -or
     $Metadata.fileName -cne $Package.Installer.Name -or $Metadata.size -ne $Package.Installer.Length -or
@@ -31,6 +32,10 @@ if ($Package.Assets.Count -eq 2) {
             throw "Release metadata does not match $($Asset.Key)."
         }
     }
+}
+if ($Package.Portable -and ($Metadata.portable.fileName -cne $Package.Portable.File.Name -or
+    $Metadata.portable.size -ne $Package.Portable.File.Length -or $Metadata.portable.sha256 -ne $Package.Portable.Sha256)) {
+    throw 'Release metadata does not match the Portable ZIP.'
 }
 if (-not (Test-Path -LiteralPath $NotesPath -PathType Leaf)) { throw 'Release notes are missing.' }
 if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) { throw 'RELEASES_TOKEN/GH_TOKEN must be configured for the public releases repository.' }
@@ -50,6 +55,7 @@ if (@($ReleasesJson | ConvertFrom-Json | Where-Object { $_.tagName -ceq $Tag }).
     throw "Release $Tag already exists. Inspect it explicitly; this script never replaces published or draft assets."
 }
 $Assets = @($Package.Assets | ForEach-Object { $_.File.FullName }) + @($Package.Manifest.FullName, $MetadataPath)
+if ($Package.Portable) { $Assets += $Package.Portable.File.FullName }
 $CreateArgs = @('release', 'create', $Tag) + $Assets + @(
     '--repo', $Repository, '--target', $Repo.default_branch,
     '--draft', '--title', "Netrix $($Metadata.version)", '--notes-file', $NotesPath

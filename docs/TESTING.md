@@ -1,5 +1,15 @@
 # Testing
 
+## Windows Portable transfer
+
+On a Windows x64 PC with Node 24 and WebView2, run the following against a release ZIP with a new evidence directory and an unused drive letter.
+
+```powershell
+./scripts/test-portable-transfer.ps1 -Phase create -DriveLetter P -Archive <release.zip> -EvidenceDirectory <evidence-folder>
+```
+
+Copy the ZIP and evidence folder to a second Windows machine with WebView2. Run the same command with `-Phase reopen -DriveLetter R` under a different Windows account. The checks open the desktop application and verify the release hash, transferred files, saved SSH host, terminal font and Vault item. The original workspace password must work and an incorrect password must be rejected. Both phases use disposable test data.
+
 ## Sidecar lifecycle
 
 ```powershell

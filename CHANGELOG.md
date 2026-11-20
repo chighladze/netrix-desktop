@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.3.0-beta.13]
+
+- Added a Windows x64 Portable ZIP. It keeps hosts, preferences and the encrypted Vault in the `Data` folder beside `Netrix.exe`. Close Netrix and copy the whole folder to move it to another PC with WebView2. The original master password unlocks the transferred workspace.
+
 ## [0.3.0-beta.12]
 
 - The Telegram links in About and Settings open the Netrix community in the default browser.
