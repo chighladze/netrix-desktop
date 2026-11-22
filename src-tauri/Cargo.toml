@@ -18,8 +18,8 @@ zeroize = "1.8"
 keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
 tokio = { version = "1", features = ["time"] }
 webview2-com = "0.39.1"
-windows-core = "0.62"
-windows-sys = { version = "0.59", features = [
+windows-core = "0.100"
+windows-sys = { version = "0.61", features = [
   "Wdk_System_SystemServices",
   "Win32_System_SystemInformation",
   "Win32_System_JobObjects",
